@@ -10,9 +10,9 @@ import (
 )
 
 func main() {
-	dbc := os.Getenv("TAMBORA_CODING_DATA_SOURCE_NAME")
+	dbc := os.Getenv("GOTAMBORA_CODING_SERVER_DATA_SOURCE_PARAMETER")
 	if dbc == "" {
-		log.Fatal("No data source name set. Please set TAMBORA_CODING_DATA_SOURCE_NAME appropriately.")
+		log.Fatal("No data source name set. Please set GOTAMBORA_CODING_SERVER_DATA_SOURCE_PARAMETER appropriately.")
 	}
 	db, err := sql.Open("postgres", dbc)
 	if err == nil {
@@ -22,7 +22,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	lp := os.Getenv("TAMBORA_CODING_LISTEN_PORT")
+	lp := os.Getenv("GOTAMBORA_CODING_SERVER_LISTEN_PORT")
 	if lp == "" {
 		lp = "80"
 	}

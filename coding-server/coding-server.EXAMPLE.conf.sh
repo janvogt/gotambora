@@ -1,5 +1,5 @@
 # Port that tambora-coding listens on. Defaults to 80 if not set
-export TAMBORA_CODING_LISTEN_PORT=8080
+export GOTAMBORA_CODING_SERVER_LISTEN_PORT=8080
 ## Connection to postgres
 # Use one or more of the following keys
 # * dbname - The name of the database to connect to
@@ -21,4 +21,4 @@ export TAMBORA_CODING_LISTEN_PORT=8080
 # * verify-full - Always SSL (verify that the certification presented by the server was signed by a trusted CA and the server host name matches the one in the certificate)
 #
 # Example:
-export TAMBORA_CODING_DATA_SOURCE_NAME="user=psuser password='with spaces'"
+export GOTAMBORA_CODING_SERVER_DATA_SOURCE_PARAMETER="user=psuser password='with spaces'"
