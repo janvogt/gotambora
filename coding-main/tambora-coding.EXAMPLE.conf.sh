@@ -21,5 +21,4 @@ export TAMBORA_CODING_LISTEN_PORT=8080
 # * verify-full - Always SSL (verify that the certification presented by the server was signed by a trusted CA and the server host name matches the one in the certificate)
 #
 # Example:
-# export TAMBORA_CODING_DATA_SOURCE_NAME="user=psuser password='with spaces'"
-export TAMBORA_CODING_DATA_SOURCE_NAME="user=tambora password='We4Mzvmgvi' host=localhost port=5432 dbname=tambora-spike-B sslmode=disable"
+export TAMBORA_CODING_DATA_SOURCE_NAME="user=psuser password='with spaces'"
