@@ -72,7 +72,8 @@ After that run:[^sles_control_apache]
 # All Environment Variables (Configuration)
 
 GOTAMBORA_CODING_SERVER_LISTEN_PORT=[portnumber to serve, defaults to 80]
-GOTAMBORA_CODING_SERVER_DATA_SOURCE_PARAMETER=[]
+GOTAMBORA_CODING_SERVER_DATABASE_URL=[]
+GOTAMBORA_CODING_SERVER_MIGRATIONS_PATH=[]
 
 # ToDos
 

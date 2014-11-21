@@ -21,4 +21,6 @@ export GOTAMBORA_CODING_SERVER_LISTEN_PORT=8080
 # * verify-full - Always SSL (verify that the certification presented by the server was signed by a trusted CA and the server host name matches the one in the certificate)
 #
 # Example:
-export GOTAMBORA_CODING_SERVER_DATA_SOURCE_PARAMETER="user=psuser password='with spaces'"
+export GOTAMBORA_CODING_SERVER_DATABASE_URL="postgres://username:password@host/dbname?parameter=value"
+# Path to the folder containing migration files
+export GOTAMBORA_CODING_SERVER_MIGRATIONS_PATH="${GOPATH}/tambora-coding/migrations"
