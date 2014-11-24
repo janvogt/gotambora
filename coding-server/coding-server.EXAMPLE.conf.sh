@@ -1,5 +1,5 @@
 # Port that tambora-coding listens on. Defaults to 80 if not set
-export GOTAMBORA_CODING_SERVER_LISTEN_PORT=8080
+port = 8080
 ## Connection to postgres
 # Use one or more of the following keys
 # * dbname - The name of the database to connect to
@@ -21,6 +21,4 @@ export GOTAMBORA_CODING_SERVER_LISTEN_PORT=8080
 # * verify-full - Always SSL (verify that the certification presented by the server was signed by a trusted CA and the server host name matches the one in the certificate)
 #
 # Example:
-export GOTAMBORA_CODING_SERVER_DATABASE_URL="postgres://username:password@host/dbname?parameter=value"
-# Path to the folder containing migration files
-export GOTAMBORA_CODING_SERVER_MIGRATIONS_PATH="${GOPATH}/tambora-coding/migrations"
+dburl = "postgres://username:password@host/dbname?parameter=value"

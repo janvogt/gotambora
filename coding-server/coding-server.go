@@ -3,22 +3,29 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"github.com/janvogt/gotambora/coding"
 	_ "github.com/lib/pq"
+	"github.com/vharitonsky/iniflags"
 	"log"
 	"net/http"
-	"os"
 	"time"
 )
 
+var (
+	dburl    = flag.String("dburl", "", "URL to the database in the form postgres://username:password@host/dbname?parameter=value...")
+	port     = flag.Int("port", 80, "Port to listen on.")
+	dbprefix = flag.String("dbprefix", "coding", "Use this prefix for all tables.")
+	cleandb  = flag.Bool("cleandb", false, "Deletes everyting written to the DB and exit.")
+)
+
 func main() {
-	dbUrl := os.Getenv("GOTAMBORA_CODING_SERVER_DATABASE_URL")
-	if dbUrl == "" {
-		log.Fatal("No data source name set. Please set GOTAMBORA_CODING_SERVER_DATABASE_URL appropriately.")
+	iniflags.Parse()
+	if *dburl == "" {
+		log.Fatal("No data source name set. Please set the --dburl flag appropriately.")
 	}
-	coding.Config().DbUrl = dbUrl
-	db, err := sql.Open("postgres", dbUrl)
+	db, err := sql.Open("postgres", *dburl)
 	if err == nil {
 		defer db.Close()
 		err = db.Ping()
@@ -26,22 +33,19 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	coding.Config().Db = db
-	mp := os.Getenv("GOTAMBORA_CODING_SERVER_MIGRATIONS_PATH")
-	if mp == "" {
-		log.Fatal("No migration path set. Please set GOTAMBORA_CODING_SERVER_MIGRATIONS_PATH appropriately.")
-	}
-	coding.Config().MigrationsPath = mp
-	lp := os.Getenv("GOTAMBORA_CODING_SERVER_LISTEN_PORT")
-	if lp == "" {
-		lp = "80"
-	}
-	if errs := coding.Migrate(); len(errs) > 0 {
-		log.Fatal(errs)
+	if *cleandb {
+		cdb, err := coding.NewDB(db, *dbprefix)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := cdb.Clean(); err != nil {
+			log.Fatal(err)
+		}
+		return
 	}
 	http.HandleFunc("/", makeDbHandler(testHandler, db))
-	log.Printf("tambora-coding starting to listen on localhost:%s ...", lp)
-	if err := http.ListenAndServe(fmt.Sprintf(":%s", lp), nil); err != nil {
+	log.Printf("tambora-coding starting to listen on localhost:%d ...", *port)
+	if err := http.ListenAndServe(fmt.Sprintf(":%d", *port), nil); err != nil {
 		log.Fatal(err)
 	}
 }
