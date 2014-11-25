@@ -12,10 +12,10 @@ If you want to start the service automatically on systemstart, then run
 insserv /etc/init.d/github.com-janvogt-gotambora-coding-server
 ```
 
-If you use coding-server as standalone server you are now able to [run](#coding-server-control) it. Otherwise you need to configure your primary HTTP-Server to forward the requests to coding-server. See [Prepare Tambora Server](#tambora-server-preparation) for how to do this on SLES 11 and Apache 2. You probably also need to set which port coding-server should listen to. To do this use `coding-server.conf` and change the line containing `GOTAMBORA_CODING_SERVER_LISTEN_PORT` accordingly. E.g. for 8080:
-```sh
+If you use coding-server as standalone server you are now able to [run](#coding-server-control) it. Otherwise you need to configure your primary HTTP-Server to forward the requests to coding-server. See [Prepare Tambora Server](#tambora-server-preparation) for how to do this on SLES 11 and Apache 2. You probably also need to set which port coding-server should listen to. To do this use `coding-server.conf` and change the line containing `port` accordingly. E.g. for 8080:
+```
 # Port that coding-server listens on. Defaults to 80 if not set
-export GOTAMBORA_CODING_SERVER_LISTEN_PORT=8080
+port = 8080
 ```
 
 # Removal
@@ -69,11 +69,13 @@ After that run:[^sles_control_apache]
 [^sles_control_apache]: [Control Apache2 in SLES 11](https://www.suse.com/documentation/sles11/book_sle_admin/data/sec_apache2_start_stop.html)
 [^sles_vhost_apache]: [Virtual Host configuration Apache2 in SLES 11](https://www.suse.com/documentation/sles11/book_sle_admin/data/sec_apache2_configuration.html#sec_apache2_configuration_manually_vhost)
 
-# All Environment Variables (Configuration)
+# All Commandline Oprions (Configuration)
 
-GOTAMBORA_CODING_SERVER_LISTEN_PORT=[portnumber to serve, defaults to 80]
-GOTAMBORA_CODING_SERVER_DATABASE_URL=[]
-GOTAMBORA_CODING_SERVER_MIGRATIONS_PATH=[]
+-port = [portnumber to serve, defaults to 80]
+-dburl = [Format: "postgres://username:password@host/dbname?parameter=value"]
+-dbprefix = [default="coding"]
+-cleandb [if set deletes everything in the db]
+-config [path to config file]
 
 # ToDos
 
