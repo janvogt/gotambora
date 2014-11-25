@@ -1,2 +1,5 @@
 # Ignore configuration files
 **/*.conf
+
+# Ignore sepecific editor configuration
+*sublime-*
