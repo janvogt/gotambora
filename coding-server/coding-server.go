@@ -60,11 +60,11 @@ func testHandler(rw http.ResponseWriter, req *http.Request, db *sql.DB) {
 	t0 := time.Now()
 	rows, err := db.Query("SELECT name.id as id, name, json_agg(event.id) as events FROM name JOIN event ON event.name_id = name.id GROUP BY name.id;")
 	t1 := time.Now()
-	fmt.Fprintf(rw, "The call took %v to run.\n", t1.Sub(t0))
 	if err != nil {
 		http.Error(rw, err.Error(), 500)
 		return
 	}
+	fmt.Fprintf(rw, "The call took %v to run.\n", t1.Sub(t0))
 	defer rows.Close()
 	var rowstructs []struct {
 		name   string
