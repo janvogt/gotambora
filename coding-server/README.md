@@ -83,3 +83,4 @@ After that run:[^sles_control_apache]
 - LBS conformant init script and setup
 - Better configuration solution (using suse sysconf?)
 - Add restricted user for deamon and use it in init script
+- Make Datasource use channels

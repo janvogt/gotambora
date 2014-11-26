@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/janvogt/gotambora/coding"
+	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"github.com/vharitonsky/iniflags"
 	"log"
@@ -25,25 +26,23 @@ func main() {
 	if *dburl == "" {
 		log.Fatal("No data source name set. Please set the --dburl flag appropriately.")
 	}
-	db, err := sql.Open("postgres", *dburl)
-	if err == nil {
-		defer db.Close()
-		err = db.Ping()
+	db, err := sqlx.Connect("postgres", *dburl)
+	if err != nil {
+		log.Fatal(err)
 	}
+	defer db.Close()
+	cdb, err := coding.NewDB(db, *dbprefix)
 	if err != nil {
 		log.Fatal(err)
 	}
 	if *cleandb {
-		cdb, err := coding.NewDB(db, *dbprefix)
-		if err != nil {
-			log.Fatal(err)
-		}
 		if err := cdb.Clean(); err != nil {
 			log.Fatal(err)
 		}
 		return
 	}
-	http.HandleFunc("/", makeDbHandler(testHandler, db))
+	// http.HandleFunc("/", makeDbHandler(testHandler, db))
+	http.HandleFunc("/", coding.Handler(cdb))
 	log.Printf("tambora-coding starting to listen on localhost:%d ...", *port)
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", *port), nil); err != nil {
 		log.Fatal(err)

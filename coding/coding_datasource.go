@@ -1,9 +1,9 @@
 package coding
 
 import (
-	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/jmoiron/sqlx"
 	"log"
 	"os"
 )
@@ -20,15 +20,15 @@ type DataSource interface {
 
 // A DB datasource.
 type DB struct {
-	*sql.DB
+	*sqlx.DB
 	*log.Logger
 	prefix string
 }
 
 // NewDB creates a new DB datasource using a given sql.DB. Creates the necessary schema if it does not exist.
-func NewDB(db *sql.DB, prefix string) (ds *DB, err error) {
+func NewDB(db *sqlx.DB, prefix string) (ds *DB, err error) {
 	newDb := &DB{db, log.New(os.Stderr, "coding/DB", log.LstdFlags), prefix}
-	v, err := newDb.Version()
+	v, err := newDb.version()
 	if err != nil {
 		return
 	}
@@ -47,12 +47,25 @@ func NewDB(db *sql.DB, prefix string) (ds *DB, err error) {
 
 // RootNodes gets all nodes with parent == 0.
 func (db *DB) RootNodes() ([]Node, error) {
-	return nil, nil
+	return db.ChildNodes(0)
 }
 
 // ChildNodes gets all nodes with parent == id.
-func (db *DB) ChildNodes(id uint64) ([]Node, error) {
-	return nil, nil
+func (db *DB) ChildNodes(id uint64) (ns []Node, err error) {
+	rows, err := db.Queryx("SELECT * FROM "+db.table("nodes")+" WHERE parent=$1", id)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		n := Node{}
+		err = rows.StructScan(&n)
+		if err != nil {
+			return
+		}
+		ns = append(ns, n)
+	}
+	return
 }
 
 // Node gets node with given id.
@@ -61,8 +74,25 @@ func (db *DB) Node(id uint64) (*Node, error) {
 }
 
 // CreateNode saves the given node to DB. The id will be set on succes. Providing a node with id already set is a failure.
-func (db *DB) CreateNode(n *Node) error {
-	return nil
+func (db *DB) CreateNode(n *Node) (err error) {
+	err = db.performWithTransaction(func(tx *sqlx.Tx) (err error) {
+		rows, err := tx.NamedQuery("INSERT INTO "+db.table("nodes")+" (label, parent) VALUES (:label, :parent) RETURNING id", &n)
+		if err != nil {
+			return
+		}
+		defer rows.Close()
+		if rows.Next() {
+			err = rows.Scan(&n.id)
+			if err != nil {
+				return
+			}
+		} else {
+			err = errors.New("Could not recieve new ID while creating node")
+			return
+		}
+		return
+	})
+	return
 }
 
 // UpdateNode updates the given node. Providing a node without id is a failure.
@@ -76,48 +106,38 @@ func (db *DB) DeleteNode(id uint64) error {
 }
 
 // performWithTransaction performs the given function f embedded in a transaction performing a roll back on failure.
-func (db *DB) performWithTransaction(f func(tx *sql.Tx) error) (err error) {
-	txn, err := db.Begin()
+func (db *DB) performWithTransaction(f func(tx *sqlx.Tx) error) (err error) {
+	txn, err := db.Beginx()
 	if err != nil {
 		return
 	}
+	defer txn.Rollback()
 	err = f(txn)
 	if err != nil {
-		mustRollback(txn)
 		return
 	}
 	err = txn.Commit()
-	if err != nil {
-		mustRollback(txn)
-		return
-	}
 	return
 }
 
 // Clean deletes all changes to the DB done by this package. It's a no-op if nothing was changed.
 func (db *DB) Clean() error {
-	return db.performWithTransaction(func(tx *sql.Tx) (err error) {
+	return db.performWithTransaction(func(tx *sqlx.Tx) (err error) {
 		_, err = tx.Exec(fmt.Sprintf(dropSchemaSQLTemplate, db.prefix))
 		return
 	})
 }
 
-func mustRollback(txn *sql.Tx) {
-	if e := txn.Rollback(); e != nil {
-		panic(e)
-	}
-}
-
 // createSchema creates the necessary DB schema. It is an error if it exists already.
 func (db *DB) createSchema() error {
-	return db.performWithTransaction(func(tx *sql.Tx) (err error) {
+	return db.performWithTransaction(func(tx *sqlx.Tx) (err error) {
 		_, err = tx.Exec(fmt.Sprintf(createSchemaSQLTemplate, db.prefix))
 		return
 	})
 }
 
 // Version returns the verion of the current schema. 0 means there is no schema set.
-func (db *DB) Version() (v uint64, err error) {
+func (db *DB) version() (v uint64, err error) {
 	res, err := db.Query(fmt.Sprintf("SELECT 1 FROM pg_proc WHERE proname = '%[1]s_version';", db.prefix))
 	if err != nil || !res.Next() {
 		return
@@ -125,6 +145,11 @@ func (db *DB) Version() (v uint64, err error) {
 	row := db.QueryRow(fmt.Sprintf("SELECT %[1]s_version();", db.prefix))
 	err = row.Scan(&v)
 	return
+}
+
+// table returns the prefixed tablename based on the given subfix.
+func (db *DB) table(name string) string {
+	return db.prefix + "_" + name
 }
 
 const createSchemaSQLTemplate = `
