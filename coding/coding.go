@@ -32,7 +32,7 @@ func makeHandler(ds DataSource, h func(rest.ResponseWriter, *rest.Request, DataS
 
 // GetRootNodes gets all root nodes from the datasource.
 func GetRootNodes(w rest.ResponseWriter, r *rest.Request, d DataSource) {
-	nodes, err := d.RootNodes()
+	nodes, err := RootNodes(d)
 	if err != nil {
 		rest.Error(w, err.Error(), 500)
 		return
@@ -47,7 +47,7 @@ func GetChildNodes(w rest.ResponseWriter, r *rest.Request, d DataSource) {
 		rest.Error(w, err.Error(), 500)
 		return
 	}
-	nodes, err := d.ChildNodes(id)
+	nodes, err := ChildNodes(d, id)
 	if err != nil {
 		rest.Error(w, err.Error(), 500)
 		return
@@ -57,12 +57,14 @@ func GetChildNodes(w rest.ResponseWriter, r *rest.Request, d DataSource) {
 
 // GetNode gets the node with the id in the parameters.
 func GetNode(w rest.ResponseWriter, r *rest.Request, d DataSource) {
-	id, err := strconv.ParseUint(r.PathParams["id"], 0, 64)
+	n := NewNode(d)
+	var err error
+	n.Id, err = strconv.ParseUint(r.PathParams["id"], 0, 64)
 	if err != nil {
 		rest.Error(w, err.Error(), 500)
 		return
 	}
-	n, err := d.Node(id)
+	err = n.Load()
 	if err != nil {
 		rest.Error(w, err.Error(), 500)
 		return
@@ -72,23 +74,18 @@ func GetNode(w rest.ResponseWriter, r *rest.Request, d DataSource) {
 
 // PutNode updates the node with the id in the parameters with the recieved data.
 func PutNode(w rest.ResponseWriter, r *rest.Request, d DataSource) {
-	id, err := strconv.ParseUint(r.PathParams["id"], 0, 64)
+	n := NewNode(d)
+	err := r.DecodeJsonPayload(&n)
 	if err != nil {
 		rest.Error(w, err.Error(), 500)
 		return
 	}
-	n, err := d.Node(id)
+	n.Id, err = strconv.ParseUint(r.PathParams["id"], 0, 64)
 	if err != nil {
 		rest.Error(w, err.Error(), 500)
 		return
 	}
-	err = r.DecodeJsonPayload(n)
-	if err != nil {
-		rest.Error(w, err.Error(), 500)
-		return
-	}
-	n.Id = id // If json data contains a diferent id
-	err = d.UpdateNode(n)
+	n.Save()
 	if err != nil {
 		rest.Error(w, err.Error(), 500)
 		return
@@ -98,12 +95,14 @@ func PutNode(w rest.ResponseWriter, r *rest.Request, d DataSource) {
 
 // DeleteNode deletes the node with the id in the parameters.
 func DeleteNode(w rest.ResponseWriter, r *rest.Request, d DataSource) {
-	id, err := strconv.ParseUint(r.PathParams["id"], 0, 64)
+	n := NewNode(d)
+	var err error
+	n.Id, err = strconv.ParseUint(r.PathParams["id"], 0, 64)
 	if err != nil {
 		rest.Error(w, err.Error(), 500)
 		return
 	}
-	err = d.DeleteNode(id)
+	err = n.Delete()
 	if err != nil {
 		rest.Error(w, err.Error(), 500)
 		return
@@ -113,9 +112,10 @@ func DeleteNode(w rest.ResponseWriter, r *rest.Request, d DataSource) {
 
 // PutNode creates a new node with the recieved data.
 func PostNode(w rest.ResponseWriter, r *rest.Request, d DataSource) {
-	n := Node{}
+	n := NewNode(d)
 	r.DecodeJsonPayload(&n)
-	err := d.CreateNode(&n)
+	n.Id = 0
+	err := n.Save()
 	if err != nil {
 		rest.Error(w, err.Error(), 500)
 		return

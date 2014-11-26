@@ -10,12 +10,10 @@ import (
 
 // Datasource for the coding package.
 type DataSource interface {
-	RootNodes() ([]Node, error)           // Gets all nodes with parent == 0.
-	ChildNodes(id uint64) ([]Node, error) // Gets all nodes with parent == id.
-	Node(id uint64) (*Node, error)        // Gets node with given id.
-	CreateNode(n *Node) error             // Saves the given node to DB. The id will be set on succes. Providing a node with id already set is a failure.
-	UpdateNode(n *Node) error             // Update the given node. Providing a node without id is a failure.
-	DeleteNode(id uint64) error           // Delete the node with given id and all of its children.
+	QueryNodes(id uint64, parent uint64) (nodes []Node, err error) // Gets all nodes satisfying the given criteria
+	InsertNode(n *Node) (insNode *Node, err error)                 // Inserts the given node and returns the result (including new id)
+	UpdateNode(n *Node) (updNode *Node, err error)                 // Updates the given node.
+	DeleteNode(id uint64) (err error)                              // Delete the given node.
 }
 
 // A DB datasource.
@@ -24,6 +22,10 @@ type DB struct {
 	*log.Logger
 	prefix string
 }
+
+var (
+	ErrNotFound = errors.New("Not found")
+)
 
 // NewDB creates a new DB datasource using a given sql.DB. Creates the necessary schema if it does not exist.
 func NewDB(db *sqlx.DB, prefix string) (ds *DB, err error) {
@@ -45,130 +47,49 @@ func NewDB(db *sqlx.DB, prefix string) (ds *DB, err error) {
 	return
 }
 
-// RootNodes gets all nodes with parent == 0.
-func (db *DB) RootNodes() ([]Node, error) {
-	return db.ChildNodes(0)
-}
-
-// ChildNodes gets all nodes with parent == id.
-func (db *DB) ChildNodes(id uint64) (ns []Node, err error) {
-	ns = make([]Node, 0)
-	rows, err := db.Queryx("SELECT * FROM "+db.table("nodes")+" WHERE parent = $1 AND id != 0", id)
-	if err != nil {
-		return
+// QueryNodes gets nodes based on a filter node.
+func (db *DB) QueryNodes(id uint64, parent uint64) (nodes []Node, err error) {
+	sql := "SELECT * FROM " + db.table("nodes") + " WHERE"
+	if id != 0 {
+		sql += fmt.Sprintf(" id = %d", id)
+	} else {
+		sql += fmt.Sprintf(" parent = %d", parent)
 	}
-	defer rows.Close()
-	for rows.Next() {
-		n, e := db.scanNode(rows)
-		if e != nil {
-			err = e
-			return
-		}
-		ns = append(ns, *n)
-	}
+	err = db.Select(&nodes, sql)
 	return
 }
 
-// Node gets node with given id.
-func (db *DB) Node(id uint64) (np *Node, err error) {
-	if id == 0 {
-		err = errors.New(fmt.Sprintf("Unknown node (id = %d)", id))
-		return
-	}
-	rows, err := db.Queryx("SELECT * FROM "+db.table("nodes")+" WHERE id = $1", id)
+// InsertNode saves the given node to DB. The id will be set on succes.
+func (db *DB) InsertNode(n *Node) (insNode *Node, err error) {
+	stmt, err := db.PrepareNamed("INSERT INTO " + db.table("nodes") + " (label, parent) VALUES (:label, :parent) RETURNING *")
 	if err != nil {
 		return
 	}
-	if !rows.Next() {
-		err = errors.New(fmt.Sprintf("Unknown node (id = %d)", id))
-		return
-	}
-	n, err := db.scanNode(rows)
-	if err != nil {
-		return
-	}
-	np = n
-	return
-}
-
-// scanNode creates a new Node based on scanning the current line in rows
-func (db *DB) scanNode(rows *sqlx.Rows) (np *Node, err error) {
-	n := Node{}
-	err = rows.StructScan(&n)
-	if err != nil {
-		return
-	}
-	n.Children = make([]uint64, 0)
-	err = db.Select(&n.Children, "SELECT id FROM "+db.table("nodes")+" WHERE parent = $1", n.Id)
-	if err != nil {
-		return
-	}
-	np = &n
-	return
-}
-
-// CreateNode saves the given node to DB. The id will be set on succes.
-func (db *DB) CreateNode(n *Node) (err error) {
-	err = db.performWithTransaction(func(tx *sqlx.Tx) (err error) {
-		rows, err := tx.NamedQuery("INSERT INTO "+db.table("nodes")+" (label, parent) VALUES (:label, :parent) RETURNING *", &n)
-		if err != nil {
-			return
-		}
-		defer rows.Close()
-		if !rows.Next() {
-			err = errors.New("Could not recieve created node")
-			return
-		}
-		np, err := db.scanNode(rows)
-		if err != nil {
-			return
-		}
-		*n = *np
-		return
-	})
+	err = stmt.Get(&insNode, &n)
 	return
 }
 
 // UpdateNode updates the given node based on it's id
-func (db *DB) UpdateNode(n *Node) (err error) {
-	err = db.performWithTransaction(func(tx *sqlx.Tx) (err error) {
-		rows, err := db.NamedQuery("UPDATE "+db.table("nodes")+" SET (label, parent) = (:label, :parent) WHERE id = :id RETURNING *", &n)
-		if err != nil {
-			return
-		}
-		defer rows.Close()
-		if !rows.Next() {
-			err = errors.New("Could not recieve updated node")
-			return
-		}
-		np, err := db.scanNode(rows)
-		if err != nil {
-			return
-		}
-		*n = *np
+func (db *DB) UpdateNode(n *Node) (updNode *Node, err error) {
+	if n.Id == 0 {
+		err = ErrNotFound
 		return
-	})
+	}
+	stmt, err := db.PrepareNamed("UPDATE " + db.table("nodes") + " SET (label, parent) = (:label, :parent) WHERE id = :id RETURNING *")
+	if err != nil {
+		return
+	}
+	err = stmt.Get(&updNode, &n)
 	return
 }
 
 // DeleteNode deletes the node with given id and all of its children.
 func (db *DB) DeleteNode(id uint64) (err error) {
+	if id == 0 {
+		err = ErrNotFound
+		return
+	}
 	_, err = db.Exec("DELETE FROM "+db.table("nodes")+" WHERE id = $1", id)
-	return
-}
-
-// performWithTransaction performs the given function f embedded in a transaction performing a roll back on failure.
-func (db *DB) performWithTransaction(f func(tx *sqlx.Tx) error) (err error) {
-	txn, err := db.Beginx()
-	if err != nil {
-		return
-	}
-	defer txn.Rollback()
-	err = f(txn)
-	if err != nil {
-		return
-	}
-	err = txn.Commit()
 	return
 }
 
@@ -202,6 +123,21 @@ func (db *DB) version() (v uint64, err error) {
 // table returns the prefixed tablename based on the given subfix.
 func (db *DB) table(name string) string {
 	return db.prefix + "_" + name
+}
+
+// performWithTransaction performs the given function f embedded in a transaction performing a roll back on failure.
+func (db *DB) performWithTransaction(f func(tx *sqlx.Tx) error) (err error) {
+	txn, err := db.Beginx()
+	if err != nil {
+		return
+	}
+	defer txn.Rollback()
+	err = f(txn)
+	if err != nil {
+		return
+	}
+	err = txn.Commit()
+	return
 }
 
 const createSchemaSQLTemplate = `
