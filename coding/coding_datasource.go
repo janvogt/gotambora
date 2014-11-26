@@ -52,6 +52,7 @@ func (db *DB) RootNodes() ([]Node, error) {
 
 // ChildNodes gets all nodes with parent == id.
 func (db *DB) ChildNodes(id uint64) (ns []Node, err error) {
+	ns = make([]Node, 0)
 	rows, err := db.Queryx("SELECT * FROM "+db.table("nodes")+" WHERE parent=$1", id)
 	if err != nil {
 		return
@@ -82,7 +83,7 @@ func (db *DB) CreateNode(n *Node) (err error) {
 		}
 		defer rows.Close()
 		if rows.Next() {
-			err = rows.Scan(&n.id)
+			err = rows.Scan(&n.Id)
 			if err != nil {
 				return
 			}

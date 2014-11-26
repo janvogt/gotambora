@@ -18,6 +18,6 @@ func Handler(ds DataSource) func(http.ResponseWriter, *http.Request) {
 			http.Error(w, err.Error(), 500)
 			return
 		}
-		fmt.Fprint(w, res)
+		fmt.Fprintf(w, "%s", res)
 	}
 }
