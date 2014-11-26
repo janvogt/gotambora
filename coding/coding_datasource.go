@@ -53,57 +53,108 @@ func (db *DB) RootNodes() ([]Node, error) {
 // ChildNodes gets all nodes with parent == id.
 func (db *DB) ChildNodes(id uint64) (ns []Node, err error) {
 	ns = make([]Node, 0)
-	rows, err := db.Queryx("SELECT * FROM "+db.table("nodes")+" WHERE parent=$1", id)
+	rows, err := db.Queryx("SELECT * FROM "+db.table("nodes")+" WHERE parent = $1 AND id != 0", id)
 	if err != nil {
 		return
 	}
 	defer rows.Close()
 	for rows.Next() {
-		n := Node{}
-		err = rows.StructScan(&n)
-		if err != nil {
+		n, e := db.scanNode(rows)
+		if e != nil {
+			err = e
 			return
 		}
-		ns = append(ns, n)
+		ns = append(ns, *n)
 	}
 	return
 }
 
 // Node gets node with given id.
-func (db *DB) Node(id uint64) (*Node, error) {
-	return &Node{}, nil
+func (db *DB) Node(id uint64) (np *Node, err error) {
+	if id == 0 {
+		err = errors.New(fmt.Sprintf("Unknown node (id = %d)", id))
+		return
+	}
+	rows, err := db.Queryx("SELECT * FROM "+db.table("nodes")+" WHERE id = $1", id)
+	if err != nil {
+		return
+	}
+	if !rows.Next() {
+		err = errors.New(fmt.Sprintf("Unknown node (id = %d)", id))
+		return
+	}
+	n, err := db.scanNode(rows)
+	if err != nil {
+		return
+	}
+	np = n
+	return
 }
 
-// CreateNode saves the given node to DB. The id will be set on succes. Providing a node with id already set is a failure.
+// scanNode creates a new Node based on scanning the current line in rows
+func (db *DB) scanNode(rows *sqlx.Rows) (np *Node, err error) {
+	n := Node{}
+	err = rows.StructScan(&n)
+	if err != nil {
+		return
+	}
+	n.Children = make([]uint64, 0)
+	err = db.Select(&n.Children, "SELECT id FROM "+db.table("nodes")+" WHERE parent = $1", n.Id)
+	if err != nil {
+		return
+	}
+	np = &n
+	return
+}
+
+// CreateNode saves the given node to DB. The id will be set on succes.
 func (db *DB) CreateNode(n *Node) (err error) {
 	err = db.performWithTransaction(func(tx *sqlx.Tx) (err error) {
-		rows, err := tx.NamedQuery("INSERT INTO "+db.table("nodes")+" (label, parent) VALUES (:label, :parent) RETURNING id", &n)
+		rows, err := tx.NamedQuery("INSERT INTO "+db.table("nodes")+" (label, parent) VALUES (:label, :parent) RETURNING *", &n)
 		if err != nil {
 			return
 		}
 		defer rows.Close()
-		if rows.Next() {
-			err = rows.Scan(&n.Id)
-			if err != nil {
-				return
-			}
-		} else {
-			err = errors.New("Could not recieve new ID while creating node")
+		if !rows.Next() {
+			err = errors.New("Could not recieve created node")
 			return
 		}
+		np, err := db.scanNode(rows)
+		if err != nil {
+			return
+		}
+		*n = *np
 		return
 	})
 	return
 }
 
-// UpdateNode updates the given node. Providing a node without id is a failure.
-func (db *DB) UpdateNode(n *Node) error {
-	return nil
+// UpdateNode updates the given node based on it's id
+func (db *DB) UpdateNode(n *Node) (err error) {
+	err = db.performWithTransaction(func(tx *sqlx.Tx) (err error) {
+		rows, err := db.NamedQuery("UPDATE "+db.table("nodes")+" SET (label, parent) = (:label, :parent) WHERE id = :id RETURNING *", &n)
+		if err != nil {
+			return
+		}
+		defer rows.Close()
+		if !rows.Next() {
+			err = errors.New("Could not recieve updated node")
+			return
+		}
+		np, err := db.scanNode(rows)
+		if err != nil {
+			return
+		}
+		*n = *np
+		return
+	})
+	return
 }
 
 // DeleteNode deletes the node with given id and all of its children.
-func (db *DB) DeleteNode(id uint64) error {
-	return nil
+func (db *DB) DeleteNode(id uint64) (err error) {
+	_, err = db.Exec("DELETE FROM "+db.table("nodes")+" WHERE id = $1", id)
+	return
 }
 
 // performWithTransaction performs the given function f embedded in a transaction performing a roll back on failure.
@@ -161,6 +212,7 @@ CREATE TABLE %[1]s_nodes (
   parent    bigint
 );
 ALTER SEQUENCE %[1]s_nodes_id_seq OWNED BY %[1]s_nodes.id;
+INSERT INTO %[1]s_nodes (id, label, parent) VALUES (0, 'root', 0);
 ALTER TABLE %[1]s_nodes ADD CONSTRAINT %[1]s_nodes_parent_fkey
   FOREIGN KEY (parent) REFERENCES %[1]s_nodes(id) ON DELETE CASCADE;
 CREATE FUNCTION %[1]s_version() RETURNS bigint
