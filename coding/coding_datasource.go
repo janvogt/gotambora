@@ -65,7 +65,8 @@ func (db *DB) InsertNode(n *Node) (insNode *Node, err error) {
 	if err != nil {
 		return
 	}
-	err = stmt.Get(&insNode, &n)
+	insNode = &Node{}
+	err = stmt.Get(insNode, &n)
 	return
 }
 
@@ -79,7 +80,8 @@ func (db *DB) UpdateNode(n *Node) (updNode *Node, err error) {
 	if err != nil {
 		return
 	}
-	err = stmt.Get(&updNode, &n)
+	updNode = &Node{}
+	err = stmt.Get(updNode, &n)
 	return
 }
 

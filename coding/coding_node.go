@@ -15,10 +15,15 @@ type Node struct {
 }
 
 var (
-	ErrNewNode = errors.New("Node has not been stored yet.")
+	ErrNewNode      = errors.New("Node has not been stored yet.")
+	ErrNoDataSource = errors.New("Node has no DataSource set.")
 )
 
 func (n *Node) Save() (err error) {
+	err = n.test(false)
+	if err != nil {
+		return
+	}
 	var res *Node
 	if n.IsNew() {
 		res, err = n.ds.InsertNode(n)
@@ -32,25 +37,41 @@ func (n *Node) Save() (err error) {
 }
 
 func (n *Node) Load() (err error) {
-	if n.IsNew() {
-		err = ErrNewNode
+	err = n.test(true)
+	if err != nil {
 		return
 	}
 	res, err := n.ds.QueryNodes(n.Id, 0)
 	if err == nil {
-		*n = res[0]
+		if len(res) == 1 {
+			*n = res[0]
+		} else {
+			err = ErrNotFound
+		}
 	}
 	return
 }
 
 func (n *Node) Delete() (err error) {
-	if n.IsNew() {
-		err = ErrNewNode
+	err = n.test(true)
+	if err != nil {
 		return
 	}
 	err = n.ds.DeleteNode(n.Id)
 	if err == nil {
 		n.Id = 0
+	}
+	return
+}
+
+func (n *Node) test(isNew bool) (err error) {
+	if n.ds == nil {
+		err = ErrNoDataSource
+		return
+	}
+	if isNew && !n.IsNew() {
+		err = ErrNewNode
+		return
 	}
 	return
 }
