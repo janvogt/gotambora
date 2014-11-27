@@ -53,7 +53,7 @@ func (db *DB) QueryNodes(id uint64, parent uint64) (nodes []Node, err error) {
 	if id != 0 {
 		sql += fmt.Sprintf(" id = %d", id)
 	} else {
-		sql += fmt.Sprintf(" parent = %d", parent)
+		sql += fmt.Sprintf(" parent = %d AND id != 0", parent)
 	}
 	err = db.Select(&nodes, sql)
 	return
