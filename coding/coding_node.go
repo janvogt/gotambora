@@ -64,12 +64,12 @@ func (n *Node) Delete() (err error) {
 	return
 }
 
-func (n *Node) test(isNew bool) (err error) {
+func (n *Node) test(notIsNew bool) (err error) {
 	if n.ds == nil {
 		err = ErrNoDataSource
 		return
 	}
-	if isNew && !n.IsNew() {
+	if notIsNew && n.IsNew() {
 		err = ErrNewNode
 		return
 	}

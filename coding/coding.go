@@ -8,7 +8,15 @@ import (
 
 // NewHandler creates a new ressource handler for the ressources of the coding subsystem.
 func NewHandler(ds DataSource) (handler http.Handler, e error) {
-	h := rest.ResourceHandler{}
+	h := rest.ResourceHandler{
+		PreRoutingMiddlewares: []rest.Middleware{
+			&rest.CorsMiddleware{
+				RejectNonCorsRequests: false,
+				OriginValidator: func(origin string, request *rest.Request) bool {
+					return origin == "http://192.168.56.101"
+				},
+				AllowedMethods: []string{"GET", "POST", "PUT", "DELETE"},
+				AllowedHeaders: []string{"Accept", "Content-Type"}}}}
 	e = h.SetRoutes(
 		&rest.Route{"GET", "/nodes", makeHandler(ds, GetRootNodes)},
 		&rest.Route{"GET", "/nodes/:id/children", makeHandler(ds, GetChildNodes)},
