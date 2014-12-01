@@ -18,6 +18,7 @@ func NewHandler(ds DataSource) (handler http.Handler, e error) {
 				AllowedMethods: []string{"GET", "POST", "PUT", "DELETE"},
 				AllowedHeaders: []string{"Accept", "Content-Type"}}}}
 	e = h.SetRoutes(
+		&rest.Route{"GET", "/nodes/import", makeHandler(ds, ImportNodesHandler)},
 		&rest.Route{"GET", "/nodes", makeHandler(ds, GetRootNodes)},
 		&rest.Route{"GET", "/nodes/:id/children", makeHandler(ds, GetChildNodes)},
 		&rest.Route{"GET", "/nodes/:id", makeHandler(ds, GetNode)},
@@ -36,6 +37,21 @@ func makeHandler(ds DataSource, h func(rest.ResponseWriter, *rest.Request, DataS
 	return func(rw rest.ResponseWriter, req *rest.Request) {
 		h(rw, req, ds)
 	}
+}
+
+// ImportNodes imports old pav values from the datasource.
+func ImportNodesHandler(w rest.ResponseWriter, r *rest.Request, d DataSource) {
+	db, ok := d.(*DB)
+	if !ok {
+		rest.Error(w, "Need Database to import from.", http.StatusInternalServerError)
+		return
+	}
+	err := ImportNodes(db)
+	if err != nil {
+		rest.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 // GetRootNodes gets all root nodes from the datasource.
