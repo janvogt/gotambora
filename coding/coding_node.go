@@ -1,103 +1,62 @@
 package coding
 
 import (
-	"errors"
+	"encoding/json"
 )
 
 // Represents a node in the nominal value hierarchy
 type Node struct {
-	Id uint64 `json:id` // Zero means not stored in DB.
-	// valueOnly bool // Only use as value, can't carry other scales
-	Label  string `json:label`  // display name
-	Parent uint64 `json:parent` // Parent node id. A zero value indicates a root node
+	Id       Id     // Zero means not stored in DB.
+	Label    string // display name
+	Parent   Id     // Parent node id. A zero value indicates a root node
+	Children RelationToMany
 	// scales    []Scale
-	ds DataSource // Pointer to datasource this node belongs to.
 }
 
-var (
-	ErrNewNode      = errors.New("Node has not been stored yet.")
-	ErrNoDataSource = errors.New("Node has no DataSource set.")
-)
+type nodeDocument struct {
+	Id     Id        `json:"id"`
+	Label  string    `json:"label"`
+	Parent Id        `json:"parent"`
+	Links  nodeLinks `json:"links"`
+}
 
-func (n *Node) Save() (err error) {
-	err = n.test(false)
+type nodeLinks struct {
+	Children RelationToMany `json:"children"`
+}
+
+func newDocumentFromNode(n *Node) *nodeDocument {
+	return &nodeDocument{n.Id, n.Label, n.Parent, nodeLinks{n.Children}}
+}
+
+func (n *nodeDocument) asNode() *Node {
+	return &Node{n.Id, n.Label, n.Parent, n.Links.Children}
+}
+
+func (n *Node) MarshalJSON() ([]byte, error) {
+	return json.Marshal(newDocumentFromNode(n))
+}
+
+func (n *Node) UnmarshalJSON(data []byte) (err error) {
+	nd := nodeDocument{}
+	err = json.Unmarshal(data, &nd)
 	if err != nil {
 		return
 	}
-	var res *Node
-	if n.IsNew() {
-		res, err = n.ds.InsertNode(n)
-	} else {
-		res, err = n.ds.UpdateNode(n)
-	}
-	if err == nil {
-		*n = *res
-	}
+	*n = *nd.asNode()
 	return
 }
 
-func (n *Node) Load() (err error) {
-	err = n.test(true)
-	if err != nil {
-		return
-	}
-	res, err := n.ds.QueryNodes(n.Id, 0)
-	if err == nil {
-		if len(res) == 1 {
-			*n = res[0]
-		} else {
-			err = ErrNotFound
-		}
-	}
-	return
+type NodeDataSource interface {
+	QueryNodes(q *NodeQuery, res chan<- *Node, abort <-chan chan<- error)
+	CreateNode(n *Node) (err error)
+	ReadNode(id Id) (n *Node, err error)
+	UpdateNode(n *Node) (err error)
+	DeleteNode(id Id) (err error)
 }
 
-func (n *Node) Delete() (err error) {
-	err = n.test(true)
-	if err != nil {
-		return
-	}
-	err = n.ds.DeleteNode(n.Id)
-	if err == nil {
-		n.Id = 0
-	}
-	return
-}
-
-func (n *Node) test(notIsNew bool) (err error) {
-	if n.ds == nil {
-		err = ErrNoDataSource
-		return
-	}
-	if notIsNew && n.IsNew() {
-		err = ErrNewNode
-		return
-	}
-	return
-}
-
-func (n *Node) IsNew() (isNew bool) {
-	return n.Id == 0
-}
-
-func RootNodes(d DataSource) ([]Node, error) {
-	return ChildNodes(d, 0)
-}
-
-func NewNode(d DataSource) *Node {
-	return &Node{ds: d}
-}
-
-func ChildNodes(d DataSource, parent uint64) ([]Node, error) {
-	nodes, err := d.QueryNodes(0, parent)
-	if nodes != nil {
-		for i := range nodes {
-			nodes[i].ds = d
-		}
-	} else {
-		nodes = make([]Node, 0)
-	}
-	return nodes, err
+type NodeQuery struct {
+	Parents []Id
+	Labels  []string
 }
 
 type IntervalScale struct {

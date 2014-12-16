@@ -3,7 +3,7 @@ package coding
 import (
 	"github.com/ant0ine/go-json-rest/rest"
 	"net/http"
-	"strconv"
+	"time"
 )
 
 // NewHandler creates a new ressource handler for the ressources of the coding subsystem.
@@ -19,12 +19,12 @@ func NewHandler(ds DataSource) (handler http.Handler, e error) {
 				AllowedHeaders: []string{"Accept", "Content-Type"}}}}
 	e = h.SetRoutes(
 		&rest.Route{"GET", "/nodes/import", makeHandler(ds, ImportNodesHandler)},
-		&rest.Route{"GET", "/nodes", makeHandler(ds, GetRootNodes)},
-		&rest.Route{"GET", "/nodes/:id/children", makeHandler(ds, GetChildNodes)},
+		&rest.Route{"GET", "/nodes", makeHandler(ds, QueryNodes)},
 		&rest.Route{"GET", "/nodes/:id", makeHandler(ds, GetNode)},
 		&rest.Route{"POST", "/nodes", makeHandler(ds, PostNode)},
 		&rest.Route{"PUT", "/nodes/:id", makeHandler(ds, PutNode)},
-		&rest.Route{"DELETE", "/nodes/:id", makeHandler(ds, DeleteNode)})
+		&rest.Route{"DELETE", "/nodes/:id", makeHandler(ds, DeleteNode)},
+	)
 	if e != nil {
 		return
 	}
@@ -54,24 +54,43 @@ func ImportNodesHandler(w rest.ResponseWriter, r *rest.Request, d DataSource) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// GetRootNodes gets all root nodes from the datasource.
-func GetRootNodes(w rest.ResponseWriter, r *rest.Request, d DataSource) {
-	nodes, err := RootNodes(d)
-	if err != nil {
-		rest.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+// QueryNodes gets all root nodes from the datasource.
+func QueryNodes(w rest.ResponseWriter, r *rest.Request, d DataSource) {
+	q := &NodeQuery{}
+	pars := map[string][]string(r.URL.Query())
+	q.Labels = pars["label"]
+	for _, parent := range pars["parent"] {
+		id, err := IdFromString(parent)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		q.Parents = append(q.Parents, id)
 	}
-	w.WriteJson(nodes)
-}
-
-// GetChildNodes gets all child nodes of the node with the id in the parameters
-func GetChildNodes(w rest.ResponseWriter, r *rest.Request, d DataSource) {
-	id, err := strconv.ParseUint(r.PathParams["id"], 0, 64)
-	if err != nil {
-		rest.Error(w, err.Error(), http.StatusBadRequest)
-		return
+	resChan := make(chan *Node)
+	abtChan := make(chan chan<- error, 1)
+	errChan := make(chan error)
+	go d.QueryNodes(q, resChan, abtChan)
+	nodes := []*Node{}
+	timeout := time.After(time.Second)
+	var err error
+L:
+	for {
+		select {
+		case n, more := <-resChan:
+			if !more {
+				break L
+			}
+			nodes = append(nodes, n)
+		case <-timeout:
+			abtChan <- errChan
+		case err = <-errChan:
+			if err == nil {
+				err = http.ErrHandlerTimeout
+			}
+			break L
+		}
 	}
-	nodes, err := ChildNodes(d, id)
 	if err != nil {
 		rest.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -81,16 +100,14 @@ func GetChildNodes(w rest.ResponseWriter, r *rest.Request, d DataSource) {
 
 // GetNode gets the node with the id in the parameters.
 func GetNode(w rest.ResponseWriter, r *rest.Request, d DataSource) {
-	n := NewNode(d)
-	var err error
-	n.Id, err = strconv.ParseUint(r.PathParams["id"], 0, 64)
+	id, err := IdFromString(r.PathParams["id"])
 	if err != nil {
-		rest.Error(w, err.Error(), http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	err = n.Load()
+	n, err := d.ReadNode(id)
 	if err != nil {
-		rest.Error(w, err.Error(), http.StatusNotFound)
+		rest.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.WriteJson(n)
@@ -98,18 +115,19 @@ func GetNode(w rest.ResponseWriter, r *rest.Request, d DataSource) {
 
 // PutNode updates the node with the id in the parameters with the recieved data.
 func PutNode(w rest.ResponseWriter, r *rest.Request, d DataSource) {
-	n := NewNode(d)
-	err := r.DecodeJsonPayload(&n)
+	n := &Node{}
+	err := r.DecodeJsonPayload(n)
 	if err != nil {
 		rest.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	n.Id, err = strconv.ParseUint(r.PathParams["id"], 0, 64)
+	id, err := IdFromString(r.PathParams["id"])
 	if err != nil {
 		rest.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	err = n.Save()
+	n.Id = id
+	err = d.UpdateNode(n)
 	if err != nil {
 		rest.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -119,14 +137,12 @@ func PutNode(w rest.ResponseWriter, r *rest.Request, d DataSource) {
 
 // DeleteNode deletes the node with the id in the parameters.
 func DeleteNode(w rest.ResponseWriter, r *rest.Request, d DataSource) {
-	n := NewNode(d)
-	var err error
-	n.Id, err = strconv.ParseUint(r.PathParams["id"], 0, 64)
+	id, err := IdFromString(r.PathParams["id"])
 	if err != nil {
 		rest.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	err = n.Delete()
+	err = d.DeleteNode(id)
 	if err != nil {
 		rest.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -134,16 +150,16 @@ func DeleteNode(w rest.ResponseWriter, r *rest.Request, d DataSource) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// PutNode creates a new node with the recieved data.
+// PostNode creates a new node with the recieved data.
 func PostNode(w rest.ResponseWriter, r *rest.Request, d DataSource) {
-	n := NewNode(d)
-	err := r.DecodeJsonPayload(&n)
+	n := &Node{}
+	err := r.DecodeJsonPayload(n)
 	if err != nil {
 		rest.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	n.Id = 0
-	err = n.Save()
+	n.Id = Id(0)
+	err = d.CreateNode(n)
 	if err != nil {
 		rest.Error(w, err.Error(), http.StatusInternalServerError)
 		return

@@ -27,7 +27,7 @@ func ImportNodes(db *DB) error {
 	}
 	for _, par := range pars {
 		attrs := make([]Attribute, 0, 100)
-		p := NewNode(db)
+		p := NewNode()
 		p.Label = par.Label
 		fmt.Printf("Creating node %v for Par %d\n", p, par.Id)
 		err = p.Save()
@@ -40,7 +40,7 @@ func ImportNodes(db *DB) error {
 		}
 		for _, attr := range attrs {
 			vals := make([]Value, 0, 100)
-			a := NewNode(db)
+			a := NewNode()
 			a.Label = attr.Label
 			a.Parent = p.Id
 			fmt.Printf("Creating node %v for tuple %d %d\n", a, par.Id, attr.Id)
@@ -53,7 +53,7 @@ func ImportNodes(db *DB) error {
 				return err
 			}
 			for _, val := range vals {
-				v := NewNode(db)
+				v := NewNode()
 				v.Label = val.Label
 				v.Parent = a.Id
 				fmt.Printf("Creating node %v for tripel %d %d %d\n", v, par.Id, attr.Id, val.Id)
