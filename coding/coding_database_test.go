@@ -193,7 +193,7 @@ func TestQueryNode(t *testing.T) {
 				&Node{1, "Hallo", 2, []Id{2, 3, 4}},
 			},
 			500 * time.Millisecond},
-		{&NodeQuery{Parents: []Id{0}, Labels: []string{"H"}},
+		{&NodeQuery{Parents: []Id{0}, Labels: []Label{"H"}},
 			"SELECT nodes.id, nodes.label, nodes.parent, json_agg\\(children.id\\) AS children FROM coding_nodes nodes LEFT JOIN coding_nodes children ON nodes.id = children.parent WHERE nodes.id != 0 AND nodes.label IN \\(\\$1\\) AND nodes.parent IN \\(\\$2\\) GROUP BY nodes.id",
 			[]driver.Value{"H", 0},
 			sqlmock.RowsFromCSVString([]string{"id", "label", "parent", "children"}, "1,Hallo,2,\"[2,3,4]\""),
@@ -202,7 +202,7 @@ func TestQueryNode(t *testing.T) {
 				&Node{1, "Hallo", 2, []Id{2, 3, 4}},
 			},
 			500 * time.Millisecond},
-		{&NodeQuery{Labels: []string{"H"}},
+		{&NodeQuery{Labels: []Label{"H"}},
 			"SELECT nodes.id, nodes.label, nodes.parent, json_agg\\(children.id\\) AS children FROM coding_nodes nodes LEFT JOIN coding_nodes children ON nodes.id = children.parent WHERE nodes.id != 0 AND nodes.label IN \\(\\$1\\) GROUP BY nodes.id",
 			[]driver.Value{"H"},
 			sqlmock.RowsFromCSVString([]string{"id", "label", "parent", "children"}, "1,Hallo,2,\"[2,3,4]\""),
@@ -211,7 +211,7 @@ func TestQueryNode(t *testing.T) {
 				&Node{1, "Hallo", 2, []Id{2, 3, 4}},
 			},
 			500 * time.Millisecond},
-		{&NodeQuery{Labels: []string{"H", "I"}},
+		{&NodeQuery{Labels: []Label{"H", "I"}},
 			"SELECT nodes.id, nodes.label, nodes.parent, json_agg\\(children.id\\) AS children FROM coding_nodes nodes LEFT JOIN coding_nodes children ON nodes.id = children.parent WHERE nodes.id != 0 AND nodes.label IN \\(\\$1, \\$2\\) GROUP BY nodes.id",
 			[]driver.Value{"H", "I"},
 			sqlmock.RowsFromCSVString([]string{"id", "label", "parent", "children"}, "1,Hallo,2,\"[2,3,4]\"\n2,Bello,4,\"[4,3,2]\""),
@@ -221,7 +221,7 @@ func TestQueryNode(t *testing.T) {
 				&Node{2, "Bello", 4, []Id{4, 3, 2}},
 			},
 			500 * time.Millisecond},
-		{&NodeQuery{Labels: []string{"H", "I"}},
+		{&NodeQuery{Labels: []Label{"H", "I"}},
 			"SELECT nodes.id, nodes.label, nodes.parent, json_agg\\(children.id\\) AS children FROM coding_nodes nodes LEFT JOIN coding_nodes children ON nodes.id = children.parent WHERE nodes.id != 0 AND nodes.label IN \\(\\$1, \\$2\\) GROUP BY nodes.id",
 			[]driver.Value{"H", "I"},
 			sqlmock.RowsFromCSVString([]string{"id", "label", "parent", "children"}, "1,Hallo,2,\"[null]\"\n2,Bello,4,\"[null]\""),
@@ -438,9 +438,9 @@ func TestUpdateNode(t *testing.T) {
 		}
 		err := db.UpdateNode(&test.node)
 		if err != test.err {
-			t.Errorf("Expected creation of node to return err %s, but got err %s. Test case: %#v", test.err, err, test)
+			t.Errorf("Expected update of node to return err %s, but got err %s. Test case: %#v", test.err, err, test)
 		} else if test.node.Id != test.expNode.Id || test.node.Label != test.expNode.Label || test.node.Parent != test.expNode.Parent || !compareIdSlice(test.node.Children, test.expNode.Children) {
-			t.Errorf("Expected creation to update given node to %#v, but got %#v. Test case %#v", test.expNode, test.node, test)
+			t.Errorf("Expected update to update given node to %#v, but got %#v. Test case %#v", test.expNode, test.node, test)
 		}
 	}
 }

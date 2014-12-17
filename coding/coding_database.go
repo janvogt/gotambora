@@ -132,7 +132,7 @@ func (db *DB) ReadNode(id Id) (n *Node, err error) {
 	if err != nil {
 		return
 	}
-	n = NewNode()
+	n = &Node{}
 	err = stmt.Get(n, id)
 	if err == sql.ErrNoRows {
 		err = ErrUnknownId

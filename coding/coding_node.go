@@ -6,16 +6,16 @@ import (
 
 // Represents a node in the nominal value hierarchy
 type Node struct {
-	Id       Id     // Zero means not stored in DB.
-	Label    string // display name
-	Parent   Id     // Parent node id. A zero value indicates a root node
+	Id       Id    // Zero means not stored in DB.
+	Label    Label // display name
+	Parent   Id    // Parent node id. A zero value indicates a root node
 	Children RelationToMany
 	// scales    []Scale
 }
 
 type nodeDocument struct {
 	Id     Id        `json:"id"`
-	Label  string    `json:"label"`
+	Label  Label     `json:"label"`
 	Parent Id        `json:"parent"`
 	Links  nodeLinks `json:"links"`
 }
@@ -56,7 +56,7 @@ type NodeDataSource interface {
 
 type NodeQuery struct {
 	Parents []Id
-	Labels  []string
+	Labels  []Label
 }
 
 type IntervalScale struct {
@@ -70,7 +70,4 @@ type IntervalScale struct {
 }
 
 type OrdinalScale struct {
-}
-
-type Scale interface {
 }

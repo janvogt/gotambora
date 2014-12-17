@@ -26,7 +26,7 @@ func (ids *RelationToMany) Scan(src interface{}) (err error) {
 		}
 		err = json.Unmarshal(src, ids)
 	default:
-		err = fmt.Errorf("Unsuported Typte %T for []Id.", src)
+		err = fmt.Errorf("Unsuported Typte %T for coding.RelationToMany", src)
 	}
 	return
 }

@@ -58,7 +58,9 @@ func ImportNodesHandler(w rest.ResponseWriter, r *rest.Request, d DataSource) {
 func QueryNodes(w rest.ResponseWriter, r *rest.Request, d DataSource) {
 	q := &NodeQuery{}
 	pars := map[string][]string(r.URL.Query())
-	q.Labels = pars["label"]
+	for _, label := range pars["label"] {
+		q.Labels = append(q.Labels, *LabelFromString(label))
+	}
 	for _, parent := range pars["parent"] {
 		id, err := IdFromString(parent)
 		if err != nil {
