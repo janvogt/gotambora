@@ -1,4 +1,4 @@
-package coding
+package types
 
 import (
 	"strconv"

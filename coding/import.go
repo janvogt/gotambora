@@ -2,24 +2,26 @@ package coding
 
 import (
 	"fmt"
+	"github.com/janvogt/gotambora/coding/database"
+	"github.com/janvogt/gotambora/coding/types"
 )
 
 type Parameter struct {
 	Id    int64
-	Label Label `db:"name_en"`
+	Label types.Label `db:"name_en"`
 }
 
 type Attribute struct {
 	Id    int64
-	Label Label `db:"name_en"`
+	Label types.Label `db:"name_en"`
 }
 
 type Value struct {
-	Id    int64 `db:id`
-	Label Label `db:"name_en"`
+	Id    int64       `db:id`
+	Label types.Label `db:"name_en"`
 }
 
-func ImportNodes(db *DB) error {
+func ImportNodes(db *database.DB) error {
 	pars := make([]Parameter, 0, 100)
 	err := db.Select(&pars, "SELECT id, name_en FROM parameter;")
 	if err != nil {
@@ -27,7 +29,7 @@ func ImportNodes(db *DB) error {
 	}
 	for _, par := range pars {
 		attrs := make([]Attribute, 0, 100)
-		p := &Node{}
+		p := &types.Node{}
 		p.Label = par.Label
 		fmt.Printf("Creating node %v for Par %d\n", p, par.Id)
 		err = db.CreateNode(p)
@@ -40,7 +42,7 @@ func ImportNodes(db *DB) error {
 		}
 		for _, attr := range attrs {
 			vals := make([]Value, 0, 100)
-			a := &Node{}
+			a := &types.Node{}
 			a.Label = attr.Label
 			a.Parent = p.Id
 			fmt.Printf("Creating node %v for tuple %d %d\n", a, par.Id, attr.Id)
@@ -53,7 +55,7 @@ func ImportNodes(db *DB) error {
 				return err
 			}
 			for _, val := range vals {
-				v := &Node{}
+				v := &types.Node{}
 				v.Label = val.Label
 				v.Parent = a.Id
 				fmt.Printf("Creating node %v for tripel %d %d %d\n", v, par.Id, attr.Id, val.Id)

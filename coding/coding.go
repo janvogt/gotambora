@@ -2,12 +2,14 @@ package coding
 
 import (
 	"github.com/ant0ine/go-json-rest/rest"
+	"github.com/janvogt/gotambora/coding/database"
+	"github.com/janvogt/gotambora/coding/types"
 	"net/http"
 	"time"
 )
 
 // NewHandler creates a new ressource handler for the ressources of the coding subsystem.
-func NewHandler(ds DataSource) (handler http.Handler, e error) {
+func NewHandler(ds types.DataSource) (handler http.Handler, e error) {
 	h := rest.ResourceHandler{
 		PreRoutingMiddlewares: []rest.Middleware{
 			&rest.CorsMiddleware{
@@ -33,15 +35,15 @@ func NewHandler(ds DataSource) (handler http.Handler, e error) {
 }
 
 // makeHandler creates a rest.HandlerFunc for use in rest.Routes based on a function that needs datasource access.
-func makeHandler(ds DataSource, h func(rest.ResponseWriter, *rest.Request, DataSource)) rest.HandlerFunc {
+func makeHandler(ds types.DataSource, h func(rest.ResponseWriter, *rest.Request, types.DataSource)) rest.HandlerFunc {
 	return func(rw rest.ResponseWriter, req *rest.Request) {
 		h(rw, req, ds)
 	}
 }
 
 // ImportNodes imports old pav values from the datasource.
-func ImportNodesHandler(w rest.ResponseWriter, r *rest.Request, d DataSource) {
-	db, ok := d.(*DB)
+func ImportNodesHandler(w rest.ResponseWriter, r *rest.Request, d types.DataSource) {
+	db, ok := d.(*database.DB)
 	if !ok {
 		rest.Error(w, "Need Database to import from.", http.StatusInternalServerError)
 		return
@@ -55,25 +57,25 @@ func ImportNodesHandler(w rest.ResponseWriter, r *rest.Request, d DataSource) {
 }
 
 // QueryNodes gets all root nodes from the datasource.
-func QueryNodes(w rest.ResponseWriter, r *rest.Request, d DataSource) {
-	q := &NodeQuery{}
+func QueryNodes(w rest.ResponseWriter, r *rest.Request, d types.DataSource) {
+	q := &types.NodeQuery{}
 	pars := map[string][]string(r.URL.Query())
 	for _, label := range pars["label"] {
-		q.Labels = append(q.Labels, *LabelFromString(label))
+		q.Labels = append(q.Labels, *types.LabelFromString(label))
 	}
 	for _, parent := range pars["parent"] {
-		id, err := IdFromString(parent)
+		id, err := types.IdFromString(parent)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		q.Parents = append(q.Parents, id)
 	}
-	resChan := make(chan *Node)
+	resChan := make(chan *types.Node)
 	abtChan := make(chan chan<- error, 1)
 	errChan := make(chan error)
 	go d.QueryNodes(q, resChan, abtChan)
-	nodes := []*Node{}
+	nodes := []*types.Node{}
 	timeout := time.After(time.Second)
 	var err error
 L:
@@ -101,8 +103,8 @@ L:
 }
 
 // GetNode gets the node with the id in the parameters.
-func GetNode(w rest.ResponseWriter, r *rest.Request, d DataSource) {
-	id, err := IdFromString(r.PathParams["id"])
+func GetNode(w rest.ResponseWriter, r *rest.Request, d types.DataSource) {
+	id, err := types.IdFromString(r.PathParams["id"])
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		return
@@ -116,14 +118,14 @@ func GetNode(w rest.ResponseWriter, r *rest.Request, d DataSource) {
 }
 
 // PutNode updates the node with the id in the parameters with the recieved data.
-func PutNode(w rest.ResponseWriter, r *rest.Request, d DataSource) {
-	n := &Node{}
+func PutNode(w rest.ResponseWriter, r *rest.Request, d types.DataSource) {
+	n := &types.Node{}
 	err := r.DecodeJsonPayload(n)
 	if err != nil {
 		rest.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	id, err := IdFromString(r.PathParams["id"])
+	id, err := types.IdFromString(r.PathParams["id"])
 	if err != nil {
 		rest.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -138,8 +140,8 @@ func PutNode(w rest.ResponseWriter, r *rest.Request, d DataSource) {
 }
 
 // DeleteNode deletes the node with the id in the parameters.
-func DeleteNode(w rest.ResponseWriter, r *rest.Request, d DataSource) {
-	id, err := IdFromString(r.PathParams["id"])
+func DeleteNode(w rest.ResponseWriter, r *rest.Request, d types.DataSource) {
+	id, err := types.IdFromString(r.PathParams["id"])
 	if err != nil {
 		rest.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -153,14 +155,14 @@ func DeleteNode(w rest.ResponseWriter, r *rest.Request, d DataSource) {
 }
 
 // PostNode creates a new node with the recieved data.
-func PostNode(w rest.ResponseWriter, r *rest.Request, d DataSource) {
-	n := &Node{}
+func PostNode(w rest.ResponseWriter, r *rest.Request, d types.DataSource) {
+	n := &types.Node{}
 	err := r.DecodeJsonPayload(n)
 	if err != nil {
 		rest.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	n.Id = Id(0)
+	n.Id = types.Id(0)
 	err = d.CreateNode(n)
 	if err != nil {
 		rest.Error(w, err.Error(), http.StatusInternalServerError)

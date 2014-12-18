@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/janvogt/gotambora/coding"
+	"github.com/janvogt/gotambora/coding/database"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"github.com/vharitonsky/iniflags"
@@ -28,7 +29,7 @@ func main() {
 		log.Fatal(err)
 	}
 	defer db.Close()
-	cdb, err := coding.NewDB(db, *dbprefix)
+	cdb, err := database.NewDB(db, *dbprefix)
 	if err != nil {
 		log.Fatal(err)
 	}

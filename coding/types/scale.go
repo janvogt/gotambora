@@ -1,12 +1,21 @@
-package coding
+package types
 
 import (
 	"database/sql"
 )
 
+type ScaleType uint
+
+const (
+	ScaleInterval ScaleType = iota
+	ScaleOrdinal  ScaleType = iota
+	ScaleNominal  ScaleType = iota
+)
+
 type Scale struct {
 	Id    Id
-	Label string
+	Label Label
+	Type  ScaleType
 }
 
 type Nominal struct {
