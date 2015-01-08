@@ -124,17 +124,98 @@ func (db *DB) createSchema() error {
 	})
 }
 
-const createSchemaSQLTemplate = `
+const labelFieldType = `text NOT NULL`
+
+const idFieldType = `bigint`
+
+const nodesTable = `
 CREATE SEQUENCE %[1]s_nodes_id_seq MINVALUE 1;
 CREATE TABLE %[1]s_nodes (
-  id        bigint PRIMARY KEY DEFAULT nextval('%[1]s_nodes_id_seq'),
-  label     text NOT NULL,
-  parent    bigint
+	id     ` + idFieldType + ` PRIMARY KEY DEFAULT nextval('%[1]s_nodes_id_seq'),
+	label  ` + labelFieldType + `,
+  parent ` + idFieldType + ` REFERENCES %[1]s_nodes(id) ON DELETE CASCADE
 );
 ALTER SEQUENCE %[1]s_nodes_id_seq OWNED BY %[1]s_nodes.id;
-INSERT INTO %[1]s_nodes (id, label, parent) VALUES (0, 'root', 0);
-ALTER TABLE %[1]s_nodes ADD CONSTRAINT %[1]s_nodes_parent_fkey
-  FOREIGN KEY (parent) REFERENCES %[1]s_nodes(id) ON DELETE CASCADE;
+`
+
+const linksTable = `
+CREATE TABLE %[1]s_links (
+  "from" ` + idFieldType + ` NOT NULL REFERENCES %[1]s_nodes(id) ON DELETE CASCADE,
+  "to"   ` + idFieldType + ` NOT NULL REFERENCES %[1]s_nodes(id) ON DELETE CASCADE,
+	PRIMARY KEY ("from", "to")
+);
+`
+
+const scalesTables = `
+CREATE SEQUENCE %[1]s_scales_id_seq;
+CREATE TABLE %[1]s_scales (
+	id    ` + idFieldType + ` PRIMARY KEY DEFAULT nextval('%[1]s_scales_id_seq'),
+	label ` + labelFieldType + `,
+	type text NOT NULL
+);
+ALTER SEQUENCE %[1]s_scales_id_seq OWNED BY %[1]s_scales.id;
+
+CREATE TABLE %[1]s_values (
+	scale   ` + idFieldType + ` NOT NULL REFERENCES %[1]s_scales(id) ON DELETE CASCADE,
+	"index" bigint NOT NULL,
+	label   ` + labelFieldType + `,
+	PRIMARY KEY (scale, "index")
+);
+
+CREATE TABLE %[1]s_units (
+	scale ` + idFieldType + ` PRIMARY KEY REFERENCES %[1]s_scales(id) ON DELETE CASCADE,
+	label ` + labelFieldType + `,
+  "min" double precision,
+  "max" double precision
+);
+`
+
+const metricsTable = `
+CREATE SEQUENCE %[1]s_metrics_id_seq;
+CREATE TABLE %[1]s_metrics (
+  id    ` + idFieldType + ` PRIMARY KEY DEFAULT nextval('%[1]s_metrics_id_seq'),
+  label ` + labelFieldType + `
+);
+ALTER SEQUENCE %[1]s_metrics_id_seq OWNED BY %[1]s_metrics.id;
+
+CREATE TABLE %[1]s_metric_scale (
+  metric ` + idFieldType + ` NOT NULL REFERENCES %[1]s_metrics(id) ON DELETE CASCADE,
+  scale   ` + idFieldType + ` NOT NULL REFERENCES %[1]s_scales(id) ON DELETE CASCADE,
+  PRIMARY KEY (metric, scale)
+);
+
+CREATE TABLE %[1]s_node_metric (
+  node    ` + idFieldType + ` NOT NULL REFERENCES %[1]s_nodes(id) ON DELETE CASCADE,
+  metric ` + idFieldType + ` NOT NULL REFERENCES %[1]s_metrics(id) ON DELETE RESTRICT,
+  PRIMARY KEY (node, metric)
+);
+`
+
+const eventsTable = `
+CREATE SEQUENCE %[1]s_events_id_seq;
+CREATE TABLE %[1]s_events (
+  id   ` + idFieldType + ` PRIMARY KEY DEFAULT nextval('%[1]s_events_id_seq'),
+  type ` + idFieldType + ` REFERENCES %[1]s_nodes(id) ON DELETE RESTRICT
+);
+ALTER SEQUENCE %[1]s_events_id_seq OWNED BY %[1]s_events.id;
+
+CREATE TABLE %[1]s_event_ratings (
+  event   ` + idFieldType + ` NOT NULL REFERENCES %[1]s_events(id) ON DELETE CASCADE,
+  metric ` + idFieldType + ` NOT NULL REFERENCES %[1]s_metrics(id) ON DELETE RESTRICT,
+  scale   ` + idFieldType + ` NOT NULL,
+  value   bigint NOT NULL,
+  FOREIGN KEY (scale, value) REFERENCES %[1]s_values(scale, index) ON UPDATE CASCADE ON DELETE RESTRICT
+);
+
+CREATE TABLE %[1]s_event_values (
+  event   ` + idFieldType + ` NOT NULL REFERENCES %[1]s_events(id) ON DELETE CASCADE,
+  metric ` + idFieldType + ` NOT NULL REFERENCES %[1]s_metrics(id) ON DELETE RESTRICT,
+  scale   ` + idFieldType + ` NOT NULL REFERENCES %[1]s_units(scale) ON UPDATE CASCADE ON DELETE RESTRICT,
+  value   double precision NOT NULL
+);
+`
+
+const createSchemaSQLTemplate = nodesTable + linksTable + scalesTables + metricsTable + eventsTable + `
 CREATE FUNCTION %[1]s_version() RETURNS bigint
   AS 'SELECT CAST(1 AS bigint);'
   LANGUAGE SQL
@@ -142,7 +223,16 @@ CREATE FUNCTION %[1]s_version() RETURNS bigint
 `
 
 const dropSchemaSQLTemplate = `
-DROP TABLE IF EXISTS %[1]s_nodes;
-DROP SEQUENCE IF EXISTS %[1]s_nodes_id_seq;
 DROP FUNCTION IF EXISTS %[1]s_version();
+DROP TABLE IF EXISTS %[1]s_event_values;
+DROP TABLE IF EXISTS %[1]s_event_ratings;
+DROP TABLE IF EXISTS %[1]s_events;
+DROP TABLE IF EXISTS %[1]s_node_metric;
+DROP TABLE IF EXISTS %[1]s_metric_scale;
+DROP TABLE IF EXISTS %[1]s_metrics;
+DROP TABLE IF EXISTS %[1]s_units;
+DROP TABLE IF EXISTS %[1]s_values;
+DROP TABLE IF EXISTS %[1]s_scales;
+DROP TABLE IF EXISTS %[1]s_links;
+DROP TABLE IF EXISTS %[1]s_nodes;
 `
