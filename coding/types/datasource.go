@@ -6,7 +6,10 @@ import (
 )
 
 type DataSource interface {
-	NodeDataSource
+	NodeController() ResourceController
+	// ScaleController() ResourceController
+	// MetricController() ResourceController
+	// EventController() ResourceController
 }
 
 type RelationToMany []Id

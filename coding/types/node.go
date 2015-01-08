@@ -46,6 +46,10 @@ func (n *Node) UnmarshalJSON(data []byte) (err error) {
 	return
 }
 
+func (n *Node) SetId(id Id) {
+	n.Id = id
+}
+
 type NodeDataSource interface {
 	QueryNodes(q *NodeQuery, res chan<- *Node, abort <-chan chan<- error)
 	CreateNode(n *Node) (err error)
@@ -54,20 +58,12 @@ type NodeDataSource interface {
 	DeleteNode(id Id) (err error)
 }
 
+// CategoryReader is a source for a set of categories.
+type NodeReader interface {
+	Read(n *Node) (ok bool, err error) // Reads the next Category in the CategoryResult into c. If sucessful ok is true, if no catagory was read ok is false, if there was an error it is returned.
+}
+
 type NodeQuery struct {
 	Parents []Id
 	Labels  []Label
-}
-
-type IntervalScale struct {
-	id     uint64
-	label  string
-	bounds struct {
-		lower float64
-		upper float64
-	}
-	unit string
-}
-
-type OrdinalScale struct {
 }

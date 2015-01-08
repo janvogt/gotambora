@@ -7,6 +7,118 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
+type NodeController struct {
+	db *DB
+}
+
+// New satisfies the types.Controller interface
+func (n *NodeController) New() (r types.Resource) {
+	return new(types.Node)
+}
+
+// Query satisfies the types.Controller interface
+func (n *NodeController) Query(q map[string][]string) types.ResourceReader {
+	par := make(map[string]interface{})
+	sqlStr := "SELECT nodes.id, nodes.label, nodes.parent, json_agg(children.id) AS children FROM " + n.db.table("nodes") + " nodes LEFT JOIN " + n.db.table("nodes") + " children ON nodes.id = children.parent WHERE nodes.id != 0 AND "
+	if len(q["label"]) != 0 {
+		sqlStr += "nodes.label IN " + inParameter("label", q["label"], par)
+		if len(q["parent"]) != 0 {
+			sqlStr += "AND "
+		}
+	}
+	if len(q["parent"]) != 0 {
+		sqlStr += "nodes.parent IN " + inParameter("parent", q["parent"], par)
+	} else if len(q["label"]) == 0 {
+		sqlStr += "nodes.parent = 0 "
+	}
+	sqlStr += "GROUP BY nodes.id"
+	res := new(NodeReader)
+	var stmt *sqlx.NamedStmt
+	stmt, res.err = n.db.PrepareNamed(sqlStr)
+	if res.err != nil {
+		return res
+	}
+	defer stmt.Close()
+	res.rows, res.err = stmt.Queryx(par)
+	return res
+}
+
+// Create satisfies the types.Controller interface
+func (n *NodeController) Create(r types.Resource) (err error) {
+	node, err := assertNode(r)
+	if err != nil {
+		return
+	}
+	err = n.db.CreateNode(node)
+	return
+}
+
+// Read satisfies the types.Controller interface
+func (n *NodeController) Read(id types.Id) (r types.Resource, err error) {
+	r, err = n.db.ReadNode(id)
+	return
+}
+
+// Update satisfies the types.Controller interface
+func (n *NodeController) Update(r types.Resource) (err error) {
+	node, err := assertNode(r)
+	if err != nil {
+		return
+	}
+	err = n.db.UpdateNode(node)
+	return
+}
+
+// Delete satisfies the types.Controller interface
+func (n *NodeController) Delete(id types.Id) (err error) {
+	err = n.db.DeleteNode(id)
+	return
+}
+
+type NodeReader struct {
+	err  error
+	rows *sqlx.Rows
+}
+
+func (n *NodeReader) Read(r types.Resource) (ok bool, err error) {
+	if n.err != nil {
+		err = n.err
+		return
+	}
+	node, err := assertNode(r)
+	if err != nil {
+		return
+	}
+	if ok = n.rows.Next(); ok {
+		err = n.rows.StructScan(node)
+	} else {
+		n.rows.Close()
+	}
+	if err != nil {
+		n.err = err
+		ok = false
+	}
+	return
+}
+
+func (n *NodeReader) Close() error {
+	return n.rows.Close()
+}
+
+func assertNode(r types.Resource) (n *types.Node, err error) {
+	switch node := r.(type) {
+	case *types.Node:
+		n = node
+	default:
+		err = errors.New("Unsuported Resource type, expected Node.")
+	}
+	return
+}
+
+func (db *DB) NodeController() types.ResourceController {
+	return &NodeController{db}
+}
+
 // QueryNodes implements NodeDatasource interface.
 func (db *DB) QueryNodes(q *types.NodeQuery, res chan<- *types.Node, abort <-chan chan<- error) {
 	defer close(res)
