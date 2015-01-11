@@ -4,6 +4,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 type ScaleType string
@@ -18,11 +19,11 @@ type Scale struct {
 	Id    Id        `json:"id"`
 	Label Label     `json:"label"`
 	Type  ScaleType `json:"type"`
-	*Unit
-	Values Values `json:"values,omitempty"`
+	*UnitDesc
+	Values Values `json:"values"`
 }
 
-type Unit struct {
+type UnitDesc struct {
 	Unit Label           `json:"unit"`
 	Min  JsonNullFloat64 `json:"min"`
 	Max  JsonNullFloat64 `json:"max"`
@@ -49,6 +50,10 @@ func (v *Values) Scan(src interface{}) error {
 		j = []byte(src)
 	default:
 		return fmt.Errorf("Unsuported Typte %T for coding.ValueSlice", src)
+	}
+	if strings.Contains(string(j), `"id":null`) {
+		*v = make([]Value, 0)
+		return nil
 	}
 	return json.Unmarshal(j, v)
 }

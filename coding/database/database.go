@@ -157,12 +157,11 @@ ALTER SEQUENCE %[1]s_scales_id_seq OWNED BY %[1]s_scales.id;
 
 CREATE SEQUENCE %[1]s_values_id_seq;
 CREATE TABLE %[1]s_values (
-  id      ` + idFieldType + ` NOT NULL DEFAULT nextval('%[1]s_values_id_seq'),
+  id      ` + idFieldType + ` PRIMARY KEY DEFAULT nextval('%[1]s_values_id_seq'),
 	scale   ` + idFieldType + ` NOT NULL REFERENCES %[1]s_scales(id) ON DELETE CASCADE,
 	"index" int NOT NULL,
 	label   ` + labelFieldType + `,
   UNIQUE (scale, "index") DEFERRABLE
-  PRIMARY KEY (id, scale)
 );
 ALTER SEQUENCE %[1]s_values_id_seq OWNED BY %[1]s_values.id;
 
@@ -173,7 +172,7 @@ CREATE TABLE %[1]s_units (
   "max" double precision
 );
 
-CREATE TYPE [1]s_scale_value AS (
+CREATE TYPE %[1]s_scale_value AS (
   id bigint,
   label text
 );
@@ -210,13 +209,11 @@ ALTER SEQUENCE %[1]s_events_id_seq OWNED BY %[1]s_events.id;
 
 CREATE TABLE %[1]s_event_ratings (
   event   ` + idFieldType + ` NOT NULL REFERENCES %[1]s_events(id) ON DELETE CASCADE,
-  metric ` + idFieldType + ` NOT NULL REFERENCES %[1]s_metrics(id) ON DELETE RESTRICT,
   value   ` + idFieldType + ` REFERENCES %[1]s_values(id) ON UPDATE CASCADE ON DELETE RESTRICT
 );
 
 CREATE TABLE %[1]s_event_values (
   event   ` + idFieldType + ` NOT NULL REFERENCES %[1]s_events(id) ON DELETE CASCADE,
-  metric ` + idFieldType + ` NOT NULL REFERENCES %[1]s_metrics(id) ON DELETE RESTRICT,
   scale   ` + idFieldType + ` NOT NULL REFERENCES %[1]s_units(scale) ON UPDATE CASCADE ON DELETE RESTRICT,
   value   double precision NOT NULL
 );
@@ -239,7 +236,7 @@ DROP TABLE IF EXISTS %[1]s_metric_scale;
 DROP TABLE IF EXISTS %[1]s_metrics;
 DROP TABLE IF EXISTS %[1]s_units;
 DROP TABLE IF EXISTS %[1]s_values;
-DROP TYPE IF EXISTS [1]s_scale_value;
+DROP TYPE IF EXISTS %[1]s_scale_value;
 DROP TABLE IF EXISTS %[1]s_scales;
 DROP TABLE IF EXISTS %[1]s_links;
 DROP TABLE IF EXISTS %[1]s_nodes;

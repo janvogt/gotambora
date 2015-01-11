@@ -4,10 +4,15 @@ import (
 	"fmt"
 	"github.com/janvogt/gotambora/coding/types"
 	"github.com/jmoiron/sqlx"
+	"net/http"
 )
 
 type ScaleController struct {
 	db *DB
+}
+
+func (db *DB) ScaleController() types.ResourceController {
+	return &ScaleController{db}
 }
 
 // New satisfies the types.Controller interface
@@ -17,7 +22,9 @@ func (s *ScaleController) New() (r types.Resource) {
 
 // Query satisfies the types.Controller interface
 func (s *ScaleController) Query(q map[string][]string) types.ResourceReader {
-	return nil
+	reader := new(ScaleReader)
+	reader.rows, reader.err = s.db.Queryx(`SELECT s.id, s.label, s.type, json_agg((v.id, v.label)::` + s.db.prefix + `_scale_value ORDER BY v.index) AS values, COALESCE(u.unit, '') AS unit, u.min, u.max FROM ` + s.db.prefix + `_scales s LEFT JOIN ` + s.db.prefix + `_values v ON s.id = v.scale LEFT JOIN ` + s.db.prefix + `_units u ON s.id = u.scale GROUP BY s.id, s.label, s.type, u.unit, u.min, u.max`)
+	return reader
 }
 
 // Create satisfies the types.Controller interface
@@ -26,45 +33,17 @@ func (s *ScaleController) Create(r types.Resource) (err error) {
 	if err != nil {
 		return
 	}
-	var q string
-	args := make([]interface{}, 2)
-	args[0], args[1] = scale.Label, scale.Type
+	args := make(map[string]interface{})
+	q := "WITH"
 	switch scale.Type {
 	case types.ScaleNominal, types.ScaleOrdinal:
-		vals := ""
-		for i, v := range scale.Values {
-			c := len(args)
-			vals += fmt.Sprintf(",($%d, $%d)", c+1, c+2)
-			args = append(args, i, v.Label)
-		}
-		q = `
-WITH new_scale AS (
-  INSERT INTO %[1]s_scales (label, type) VALUES ($1, $2) RETURNING *
-),
-new_scale_values AS (
-  VALUES
-   ` + vals[1:] + `
-),
-new_values AS (
-  INSERT INTO %[1]s_values (label, scale, "index") SELECT v.column1, s.id, v.column2 FROM new_scale s, new_scale_values v RETURNING *
-)
-SELECT s.id, s.label, s.type, json_agg((v.id, v.label)::%[1]s_scale_value ORDER BY v."index") AS values
+		q += newValues(scale, args) + `
+SELECT s.id, s.label, s.type, json_agg((v.id, v.label)::::%[1]s_scale_value ORDER BY v."index") AS values
   FROM new_scale s
   LEFT JOIN new_values v ON s.id = v.scale
 GROUP BY s.id, s.label, s.type`
 	case types.ScaleInterval:
-		args = append(args, scale.Unit.Unit, scale.Min, scale.Max)
-		q = `
-WITH new_scale AS (
-  INSERT INTO %[1]s_scales (label, type) VALUES ($1, $2) RETURNING *
-),
-new_scale_units AS (
-  VALUES
-	($3, $4, $5)
-),
-new_units AS (
-  INSERT INTO %[1]s_units (scale, unit, "min", "max") SELECT s.id, v.column1, v.column2, v.column3 FROM new_scale s, new_scale_units v RETURNING *
-)
+		q += newUnit(scale, args) + `
 SELECT s.id, s.label, s.type, u.unit, u.min, u.max
   FROM new_scale s
   LEFT JOIN new_units u ON s.id = u.scale`
@@ -72,11 +51,11 @@ SELECT s.id, s.label, s.type, u.unit, u.min, u.max
 		err = fmt.Errorf("Invalid scale type for new scale!")
 		return
 	}
-	stmt, err := s.db.Preparex(fmt.Sprintf(q, s.db.prefix))
+	stmt, err := s.db.PrepareNamed(fmt.Sprintf(q, s.db.prefix))
 	if err != nil {
 		return
 	}
-	row := stmt.QueryRowx(args...)
+	row := stmt.QueryRowx(args)
 	err = row.StructScan(scale)
 	if err != nil {
 		return
@@ -85,9 +64,37 @@ SELECT s.id, s.label, s.type, u.unit, u.min, u.max
 	return
 }
 
+func newScale(s *types.Scale, args map[string]interface{}) string {
+	args["newScaleLabel"], args["newScaleType"] = s.Label, s.Type
+	return ` new_scale AS ( INSERT INTO %[1]s_scales (label, type) VALUES (:newScaleLabel, :newScaleType) RETURNING * )`
+}
+
+func newValues(s *types.Scale, args map[string]interface{}) (q string) {
+	q = newScale(s, args) + ","
+	if s.Values == nil || len(s.Values) == 0 {
+		q += ` new_values AS ( SELECT * FROM %[1]s_values WHERE FALSE)`
+		return
+	}
+	vs := ""
+	for i, v := range s.Values {
+		lab, ind := fmt.Sprintf("newValuesLabel%d", i), fmt.Sprintf("newValuesIndex%d", i)
+		args[lab], args[ind] = v.Label, i
+		vs += fmt.Sprintf(",(:%s, :%s)", lab, ind)
+	}
+	q += ` new_scale_values AS ( VALUES ` + vs[1:] + ` ), new_values AS ( INSERT INTO %[1]s_values ("index", label, scale) SELECT v.index::::bigint, v.label, s.id FROM new_scale s, new_scale_values AS v (label, "index") RETURNING * )`
+	return
+}
+
+func newUnit(s *types.Scale, args map[string]interface{}) (q string) {
+	q = newScale(s, args) + ","
+	args["newUnitUnit"], args["newUnitMin"], args["newUnitMax"] = s.Unit, s.Min, s.Max
+	q += ` new_units AS ( INSERT INTO %[1]s_units (scale, unit, "min", "max") SELECT s.id, v.unit, v.min::::double precision, v.max::::double precision FROM new_scale s, (VALUES (:newUnitUnit, :newUnitMin, :newUnitMax)) AS v (unit, "min", "max") RETURNING * )`
+	return
+}
+
 // Read satisfies the types.Controller interface
 func (s *ScaleController) Read(id types.Id) (r types.Resource, err error) {
-	stmt, err := s.db.Preparex(`SELECT s.id, s.label, s.type, json_agg((v.id, v.label)::` + s.db.prefix + `_scale_value ORDER BY v.index) AS values, COALESCE(u.unit, ""), u.min, u.max FROM ` + s.db.prefix + `_scales s LEFT JOIN ` + s.db.prefix + `_values v ON s.id = v.scale LEFT JOIN ` + s.db.prefix + `_units u ON s.id = u.scale WHERE s.id = $1 GROUP BY s.id, s.label, s.type, u.unit, u.min, u.max`)
+	stmt, err := s.db.Preparex(`SELECT s.id, s.label, s.type, json_agg((v.id, v.label)::` + s.db.prefix + `_scale_value ORDER BY v.index) AS values, COALESCE(u.unit, '') AS unit, u.min, u.max FROM ` + s.db.prefix + `_scales s LEFT JOIN ` + s.db.prefix + `_values v ON s.id = v.scale LEFT JOIN ` + s.db.prefix + `_units u ON s.id = u.scale WHERE s.id = $1 GROUP BY s.id, s.label, s.type, u.unit, u.min, u.max`)
 	if err != nil {
 		return
 	}
@@ -111,91 +118,29 @@ func (s *ScaleController) Update(r types.Resource) (err error) {
 	if err != nil {
 		return
 	}
-	qValue1 := `
-WITH updated_scale AS (
-  UPDATE %[1]s_scales SET label = $1 WHERE id = $2 RETURNING *
-),
-update_scale_values AS (
-  VALUES
-`
-	qValue2 := `
-),
-updated_values AS (
-  UPDATE %[1]s_values SET label = column2, "index" = column3 FROM update_scale_values WHERE id = column1 RETURNING %[1]s_values.*
-),
-new_scale_values AS (
-  VALUES
-`
-	qValue3 := `
-),
-new_values AS (
-  INSERT INTO %[1]s_values (label, scale, "index") SELECT v.column1, s.id, v.column2 FROM updated_scale s, new_scale_values v RETURNING *
-),
-changed_values AS (
-  SELECT * FROM new_values UNION SELECT * FROM updated_values
-),
-all_values AS (
-  SELECT * FROM changed_values UNION SELECT v.* FROM updated_scale s, %[1]s_values v WHERE s.id = v.scale AND v.id NOT IN ( SELECT id FROM changed_values )
-)
-SELECT s.id, s.label, s.type, json_agg((v.id, v.label)::%[1]s_scale_value ORDER BY v."index") AS values
-  FROM updated_scale s
-  LEFT JOIN all_values v ON s.id = v.scale
-GROUP BY s.id, s.label, s.type`
-	qUnit := `
-WITH updated_scale AS (
-  UPDATE %[1]s_scales SET label = :label WHERE id = :id RETURNING *
-),
-update_unit AS (
-  UPDATE %[1]s_units SET unit = :unit, min = :min, max = :max FROM updated_scale WHERE scale = id RETURNING %[1]s_units.*
-)
-SELECT s.id, s.label, s.type, u.unit, u.min, u.max
-  FROM updated_scale s
-  LEFT JOIN update_unit u ON s.id = u.scale`
-	var row *sqlx.Row
-	args := make([]interface{}, 2)
-	args[0], args[1] = scale.Label, scale.Id
+	q := "WITH"
+	args := make(map[string]interface{})
 	switch scale.Type {
 	case types.ScaleNominal, types.ScaleOrdinal:
-		toUpdate := make([]interface{}, 0)
-		toCreate := make([]interface{}, 0)
-		for i, v := range scale.Values {
-			if v.Id == 0 {
-				toCreate = append(toCreate, v.Label, i)
-			} else {
-				toUpdate = append(toUpdate, v.Id, v.Label, i)
-			}
-		}
-		cA, cU, cC := len(args), len(toUpdate), len(toCreate)
-		newArgs := make([]interface{}, cA+cU+cC)
-		copy(newArgs[:cA], args)
-		copy(newArgs[cA:cA+cU], toUpdate)
-		copy(newArgs[cA+cU:cA+cU+cC], toCreate)
-		args = newArgs
-		var qU, qC string
-		for i := 0; i < cU/3; i++ {
-			qU += fmt.Sprintf(",($%d, $%d, $%d)", cA+i*3+1, cA+i*3+2, cA+i*3+3)
-		}
-		for i := 0; i < cC/2; i++ {
-			qC += fmt.Sprintf(",($%d, $%d)", cA+cU+i*2+1, cA+cU+i*2+2)
-		}
-		q := qValue1 + qU[1:] + qValue2 + qC[1:] + qValue3
-		var stmt *sqlx.Stmt
-		stmt, err = s.db.Preparex(fmt.Sprintf(q, s.db.prefix))
-		if err != nil {
-			return
-		}
-		row = stmt.QueryRowx(args...)
+		q += changedValues(scale, args) + `
+SELECT s.id, s.label, s.type, json_agg((v.id, v.label)::::%[1]s_scale_value ORDER BY v."index") AS values
+  FROM updated_scale s
+  LEFT JOIN changed_values v ON s.id = v.scale
+GROUP BY s.id, s.label, s.type`
 	case types.ScaleInterval:
-		var stmt *sqlx.NamedStmt
-		stmt, err = s.db.PrepareNamed(fmt.Sprintf(qUnit, s.db.prefix))
-		if err != nil {
-			return
-		}
-		row = stmt.QueryRowx(scale)
+		q += updatedUnit(scale, args) + `
+SELECT s.id, s.label, s.type, u.unit, u.min, u.max
+  FROM updated_scale s
+  LEFT JOIN updated_unit u ON s.id = u.scale`
 	default:
 		err = fmt.Errorf("Invalid scale type for new scale!")
 		return
 	}
+	stmt, err := s.db.PrepareNamed(fmt.Sprintf(q, s.db.prefix))
+	if err != nil {
+		return
+	}
+	row := stmt.QueryRowx(args)
 	err = row.StructScan(scale)
 	if err != nil {
 		return
@@ -204,9 +149,65 @@ SELECT s.id, s.label, s.type, u.unit, u.min, u.max
 	return
 }
 
+func updatedScale(s *types.Scale, args map[string]interface{}) string {
+	args["updatedScaleLabel"], args["updatedScaleId"] = s.Label, s.Id
+	return ` updated_scale AS ( UPDATE %[1]s_scales SET label = :updatedScaleLabel WHERE id = :updatedScaleId RETURNING * )`
+}
+
+func changedValues(s *types.Scale, args map[string]interface{}) (q string) {
+	q = updatedScale(s, args)
+	del := `, deleted AS ( DELETE FROM %[1]s_values v USING updated_scale s WHERE v.scale = s.id AND v.id NOT IN ( SELECT id FROM changed_values ) )`
+	if s.Values == nil || len(s.Values) == 0 {
+		q += `, changed_values AS ( SELECT * FROM %[1]s_values WHERE FALSE )` + del
+		return
+	}
+	uV, cV := "", ""
+	for i, v := range s.Values {
+		if v.Id != 0 {
+			id, lab, ind := fmt.Sprintf("changesValuesId%d", i), fmt.Sprintf("changesValuesLabel%d", i), fmt.Sprintf("changesValuesIndex%d", i)
+			args[id], args[lab], args[ind] = v.Id, v.Label, i
+			uV += fmt.Sprintf(",(:%s, :%s, :%s)", id, lab, ind)
+		} else {
+			lab, ind := fmt.Sprintf("changesValuesLabel%d", i), fmt.Sprintf("changesValuesIndex%d", i)
+			args[lab], args[ind] = v.Label, i
+			cV += fmt.Sprintf(",(:%s, :%s)", lab, ind)
+		}
+	}
+	if len(uV) > 0 {
+		q += `, updated_values AS ( UPDATE %[1]s_values v SET label = n.label, "index" = n.index::::bigint FROM updated_scale s, ( VALUES ` + uV[1:] + ` ) AS n (id, label, "index") WHERE v.id = n.id::::bigint AND v.scale = s.id RETURNING v.* )`
+	} else {
+		q += `, updated_values AS ( SELECT * FROM %[1]s_values WHERE FALSE )`
+	}
+	if len(cV) > 0 {
+		q += `, new_values AS ( INSERT INTO %[1]s_values (label, scale, "index") SELECT v.label, s.id, v.index::::bigint FROM updated_scale s, ( VALUES ` + cV[1:] + ` ) AS v (label, "index") RETURNING * )`
+	} else {
+		q += `, new_values AS ( SELECT * FROM %[1]s_values WHERE FALSE )`
+	}
+	q += `, changed_values AS ( SELECT * FROM new_values UNION SELECT * FROM updated_values )` + del
+	return
+}
+
+func updatedUnit(s *types.Scale, args map[string]interface{}) (q string) {
+	q = updatedScale(s, args)
+	args["updatedUnitUnit"], args["updatedUnitMin"], args["updatedUnitMax"] = s.Unit, s.Min, s.Max
+	q += `, updated_unit AS ( UPDATE %[1]s_units SET unit = :updatedUnitUnit, min = :updatedUnitMin, max = :updatedUnitMax FROM updated_scale s WHERE scale = s.id RETURNING %[1]s_units.* )`
+	return
+}
+
 // Delete satisfies the types.Controller interface
 func (s *ScaleController) Delete(id types.Id) (err error) {
-	return nil
+	res, err := s.db.Exec("DELETE FROM "+s.db.prefix+"_scales WHERE id = $1", id)
+	if err != nil {
+		return
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return
+	}
+	if n != 1 {
+		err = types.NewHttpError(http.StatusNotFound, fmt.Errorf("No scale found with id %d", id))
+	}
+	return
 }
 
 type ScaleReader struct {
@@ -216,7 +217,28 @@ type ScaleReader struct {
 
 // Read implements the types.DocumentReader interface
 func (s *ScaleReader) Read(r types.Resource) (ok bool, err error) {
-	return false, nil
+	if s.err != nil {
+		err = s.err
+		return
+	}
+	scale, err := assertScale(r)
+	if err != nil {
+		return
+	}
+	if ok = s.rows.Next(); ok {
+		err = s.rows.StructScan(scale)
+	} else {
+		s.rows.Close()
+	}
+	if err != nil {
+		ok, s.err = false, err
+	} else {
+		s.err = cleanupScale(scale)
+		if s.err != nil {
+			ok, s.err = false, err
+		}
+	}
+	return
 }
 
 // Close implements the types.DocumentReader interface
@@ -238,7 +260,7 @@ func assertScale(r types.Resource) (s *types.Scale, err error) {
 func cleanupScale(s *types.Scale) error {
 	switch s.Type {
 	case types.ScaleNominal, types.ScaleOrdinal:
-		s.Unit = nil
+		s.UnitDesc = nil
 	case types.ScaleInterval:
 		s.Values = nil
 	default:

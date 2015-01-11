@@ -11,31 +11,39 @@ import (
 func TestCreateScale(t *testing.T) {
 	cValue := []string{"id", "label", "type", "values"}
 	cInterval := []string{"id", "label", "type", "unit", "min", "max"}
-	qBeginValue := `WITH new_scale AS \( INSERT INTO prefix_scales \(label, type\) VALUES \(\$1, \$2\) RETURNING \* \), new_scale_values AS \( VALUES `
-	qEndValue := ` \), new_values AS \( INSERT INTO prefix_values \(label, scale, "index"\) SELECT v.column1, s.id, v.column2 FROM new_scale s, new_scale_values v RETURNING \* \) SELECT s.id, s.label, s.type, json_agg\(\(v.id, v.label\)::prefix_scale_value ORDER BY v."index"\) AS values FROM new_scale s LEFT JOIN new_values v ON s.id = v.scale GROUP BY s.id, s.label, s.type`
-	qInterval := `WITH new_scale AS \( INSERT INTO prefix_scales \(label, type\) VALUES \(\$1, \$2\) RETURNING \* \), new_scale_units AS \( VALUES \(\$3, \$4, \$5\) \), new_units AS \( INSERT INTO prefix_units \(scale, unit, "min", "max"\) SELECT s.id, v.column1, v.column2, v.column3 FROM new_scale s, new_scale_units v RETURNING \* \) SELECT s.id, s.label, s.type, u.unit, u.min, u.max FROM new_scale s LEFT JOIN new_units u ON s.id = u.scale`
+	qBeginValue := `WITH new_scale AS \( INSERT INTO prefix_scales \(label, type\) VALUES \(\$1, \$2\) RETURNING \* \), `
+	qEndValue := ` SELECT s.id, s.label, s.type, json_agg\(\(v.id, v.label\)::prefix_scale_value ORDER BY v."index"\) AS values FROM new_scale s LEFT JOIN new_values v ON s.id = v.scale GROUP BY s.id, s.label, s.type`
+	qUnit := `WITH new_scale AS \( INSERT INTO prefix_scales \(label, type\) VALUES \(\$1, \$2\) RETURNING \* \), new_units AS \( INSERT INTO prefix_units \(scale, unit, "min", "max"\) SELECT s.id, v.unit, v.min::double precision, v.max::double precision FROM new_scale s, \(VALUES \(\$3, \$4, \$5\)\) AS v \(unit, "min", "max"\) RETURNING \* \) SELECT s.id, s.label, s.type, u.unit, u.min, u.max FROM new_scale s LEFT JOIN new_units u ON s.id = u.scale`
 	tests := []struct {
 		q   string
 		sn  *types.Scale
-		se  *types.Scale
-		r   []driver.Value
 		a   []driver.Value
+		r   []driver.Value
+		se  *types.Scale
 		col []string
 	}{
 		{
-			qBeginValue + `\(\$3, \$4\),\(\$5, \$6\),\(\$7, \$8\)` + qEndValue,
+			qBeginValue + `new_scale_values AS \( VALUES \(\$3, \$4\),\(\$5, \$6\),\(\$7, \$8\) \), new_values AS \( INSERT INTO prefix_values \("index", label, scale\) SELECT v.index::bigint, v.label, s.id FROM new_scale s, new_scale_values AS v \(label, "index"\) RETURNING \* \)` + qEndValue,
 			&types.Scale{0, "yeah", types.ScaleOrdinal, nil, types.Values{types.Value{0, "No1"}, types.Value{0, "No2"}, types.Value{0, "No3"}}},
-			&types.Scale{2, "yeah", types.ScaleOrdinal, nil, types.Values{types.Value{1, "No1"}, types.Value{2, "No2"}, types.Value{3, "No3"}}},
+			[]driver.Value{"yeah", "ordinal", "No1", 0, "No2", 1, "No3", 2},
 			[]driver.Value{2, "yeah", "ordinal", `[{"id":1,"label":"No1"},{"id":2,"label":"No2"},{"id":3,"label":"No3"}]`},
-			[]driver.Value{"yeah", "ordinal", 0, "No1", 1, "No2", 2, "No3"},
+			&types.Scale{2, "yeah", types.ScaleOrdinal, nil, types.Values{types.Value{1, "No1"}, types.Value{2, "No2"}, types.Value{3, "No3"}}},
 			cValue,
 		},
 		{
-			qInterval,
-			&types.Scale{0, "yo", types.ScaleInterval, &types.Unit{"˚C", types.JsonNullFloat64{-273.15, true}, types.JsonNullFloat64{0, false}}, nil},
-			&types.Scale{2, "yo", types.ScaleInterval, &types.Unit{"˚C", types.JsonNullFloat64{-273.15, true}, types.JsonNullFloat64{0, false}}, nil},
-			[]driver.Value{2, "yo", "interval", "˚C", -273.15, nil},
+			qBeginValue + `new_values AS \( SELECT \* FROM prefix_values WHERE FALSE\)` + qEndValue,
+			&types.Scale{0, "yeah", types.ScaleOrdinal, nil, types.Values{}},
+			[]driver.Value{"yeah", "ordinal"},
+			[]driver.Value{2, "yeahR", "ordinal", `[{"id":null,"label":null}]`},
+			&types.Scale{2, "yeahR", types.ScaleOrdinal, nil, types.Values{}},
+			cValue,
+		},
+		{
+			qUnit,
+			&types.Scale{0, "yo", types.ScaleInterval, &types.UnitDesc{"˚C", types.JsonNullFloat64{-273.15, true}, types.JsonNullFloat64{0, false}}, nil},
 			[]driver.Value{"yo", "interval", "˚C", -273.15, nil},
+			[]driver.Value{2, "yo", "interval", "˚C", -273.15, nil},
+			&types.Scale{2, "yo", types.ScaleInterval, &types.UnitDesc{"˚C", types.JsonNullFloat64{-273.15, true}, types.JsonNullFloat64{0, false}}, nil},
 			cInterval,
 		},
 	}
@@ -56,7 +64,7 @@ func TestCreateScale(t *testing.T) {
 }
 
 func TestReadScale(t *testing.T) {
-	q := `SELECT s.id, s.label, s.type, json_agg\(\(v.id, v.label\)::prefix_scale_value ORDER BY v.index\) AS values, COALESCE\(u.unit, ""\), u.min, u.max FROM prefix_scales s LEFT JOIN prefix_values v ON s.id = v.scale LEFT JOIN prefix_units u ON s.id = u.scale WHERE s.id = \$1 GROUP BY s.id, s.label, s.type, u.unit, u.min, u.max`
+	q := `SELECT s.id, s.label, s.type, json_agg\(\(v.id, v.label\)::prefix_scale_value ORDER BY v.index\) AS values, COALESCE\(u.unit, ''\) AS unit, u.min, u.max FROM prefix_scales s LEFT JOIN prefix_values v ON s.id = v.scale LEFT JOIN prefix_units u ON s.id = u.scale WHERE s.id = \$1 GROUP BY s.id, s.label, s.type, u.unit, u.min, u.max`
 	col := []string{"id", "label", "type", "values", "unit", "min", "max"}
 	tests := []struct {
 		r  []driver.Value
@@ -70,7 +78,7 @@ func TestReadScale(t *testing.T) {
 		},
 		{
 			[]driver.Value{5, "scale", "interval", `[null]`, "˚C", -273.15, nil},
-			&types.Scale{5, "scale", types.ScaleInterval, &types.Unit{"˚C", types.JsonNullFloat64{-273.15, true}, types.JsonNullFloat64{0, false}}, nil},
+			&types.Scale{5, "scale", types.ScaleInterval, &types.UnitDesc{"˚C", types.JsonNullFloat64{-273.15, true}, types.JsonNullFloat64{0, false}}, nil},
 			types.Id(5),
 		},
 	}
@@ -93,10 +101,17 @@ func TestReadScale(t *testing.T) {
 func TestUpdateScale(t *testing.T) {
 	cValue := []string{"id", "label", "type", "values"}
 	cInterval := []string{"id", "label", "type", "unit", "min", "max"}
-	qValue1 := `WITH updated_scale AS \( UPDATE prefix_scales SET label = \$1 WHERE id = \$2 RETURNING \* \), update_scale_values AS \( VALUES `
-	qValue2 := ` \), updated_values AS \( UPDATE prefix_values SET label = column2, "index" = column3 FROM update_scale_values WHERE id = column1 RETURNING prefix_values.\* \), new_scale_values AS \( VALUES `
-	qValue3 := ` \), new_values AS \( INSERT INTO prefix_values \(label, scale, "index"\) SELECT v.column1, s.id, v.column2 FROM updated_scale s, new_scale_values v RETURNING \* \), changed_values AS \( SELECT \* FROM new_values UNION SELECT \* FROM updated_values \), all_values AS \( SELECT \* FROM changed_values UNION SELECT v.\* FROM updated_scale s, prefix_values v WHERE s.id = v.scale AND v.id NOT IN \( SELECT id FROM changed_values \) \) SELECT s.id, s.label, s.type, json_agg\(\(v.id, v.label\)::prefix_scale_value ORDER BY v."index"\) AS values FROM updated_scale s LEFT JOIN all_values v ON s.id = v.scale GROUP BY s.id, s.label, s.type`
-	qUnit := `WITH updated_scale AS \( UPDATE prefix_scales SET label = \$1 WHERE id = \$2 RETURNING \* \), update_unit AS \( UPDATE prefix_units SET unit = \$3, min = \$4, max = \$5 FROM updated_scale WHERE scale = id RETURNING prefix_units.\* \) SELECT s.id, s.label, s.type, u.unit, u.min, u.max FROM updated_scale s LEFT JOIN update_unit u ON s.id = u.scale`
+	qSUpdate := `WITH updated_scale AS \( UPDATE prefix_scales SET label = \$1 WHERE id = \$2 RETURNING \* \)`
+	// qChangeEmpty := `, changed_values AS \( SELECT \* FROM prefix_values WHERE FALSE \), deleted AS \( DELETE FROM prefix_values v USING updated_scale s WHERE v.scale = s.id AND v.id NOT IN \( SELECT id FROM changed_values \) \)`
+	// qUpdateEmpty := `, updated_values AS \( SELECT \* FROM prefix_values WHERE FALSE \)`
+	// qNewEmpty := `, new_values AS \( SELECT \* FROM prefix_values WHERE FALSE \)`
+	qUpdateBegin := `, updated_values AS \( UPDATE prefix_values v SET label = n.label, "index" = n.index::bigint FROM updated_scale s, \( VALUES `
+	qUpdateEnd := ` \) AS n \(id, label, "index"\) WHERE v.id = n.id::bigint AND v.scale = s.id RETURNING v.\* \)`
+	qNewBegin := `, new_values AS \( INSERT INTO prefix_values \(label, scale, "index"\) SELECT v.label, s.id, v.index::bigint FROM updated_scale s, \( VALUES `
+	qNewEnd := ` \) AS v \(label, "index"\) RETURNING \* \)`
+	qChanges := `, changed_values AS \( SELECT \* FROM new_values UNION SELECT \* FROM updated_values \), deleted AS \( DELETE FROM prefix_values v USING updated_scale s WHERE v.scale = s.id AND v.id NOT IN \( SELECT id FROM changed_values \) \)`
+	qValue := ` SELECT s.id, s.label, s.type, json_agg\(\(v.id, v.label\)::prefix_scale_value ORDER BY v."index"\) AS values FROM updated_scale s LEFT JOIN changed_values v ON s.id = v.scale GROUP BY s.id, s.label, s.type`
+	qUnit := `, updated_unit AS \( UPDATE prefix_units SET unit = \$3, min = \$4, max = \$5 FROM updated_scale s WHERE scale = s.id RETURNING prefix_units.\* \) SELECT s.id, s.label, s.type, u.unit, u.min, u.max FROM updated_scale s LEFT JOIN updated_unit u ON s.id = u.scale`
 	tests := []struct {
 		q   string
 		sn  *types.Scale
@@ -106,18 +121,18 @@ func TestUpdateScale(t *testing.T) {
 		col []string
 	}{
 		{
-			qValue1 + `\(\$3, \$4, \$5\),\(\$6, \$7, \$8\),\(\$9, \$10, \$11\)` + qValue2 + `\(\$12, \$13\),\(\$14, \$15\)` + qValue3,
+			qSUpdate + qUpdateBegin + `\(\$3, \$4, \$5\),\(\$6, \$7, \$8\),\(\$9, \$10, \$11\)` + qUpdateEnd + qNewBegin + `\(\$12, \$13\),\(\$14, \$15\)` + qNewEnd + qChanges + qValue,
 			&types.Scale{2, "yeah", types.ScaleOrdinal, nil, types.Values{types.Value{1, "NewNo1"}, types.Value{2, "No2"}, types.Value{0, "NewNo3"}, types.Value{3, "NewNo4"}, types.Value{0, "New5"}}},
 			[]driver.Value{"yeah", 2, 1, "NewNo1", 0, 2, "No2", 1, 3, "NewNo4", 3, "NewNo3", 2, "New5", 4},
 			[]driver.Value{3, "yeahR", "ordinal", `[{"id":2,"label":"NewNo1R"},{"id":3,"label":"No2R"},{"id":5,"label":"NewNo3R"},{"id":4,"label":"NewNo4R"},{"id":6,"label":"New5R"}]`},
 			&types.Scale{3, "yeahR", types.ScaleOrdinal, nil, types.Values{types.Value{2, "NewNo1R"}, types.Value{3, "No2R"}, types.Value{5, "NewNo3R"}, types.Value{4, "NewNo4R"}, types.Value{6, "New5R"}}},
 			cValue,
 		}, {
-			qUnit,
-			&types.Scale{2, "yo", types.ScaleInterval, &types.Unit{"˚K", types.JsonNullFloat64{0, true}, types.JsonNullFloat64{0, false}}, nil},
+			qSUpdate + qUnit,
+			&types.Scale{2, "yo", types.ScaleInterval, &types.UnitDesc{"˚K", types.JsonNullFloat64{0, true}, types.JsonNullFloat64{0, false}}, nil},
 			[]driver.Value{"yo", 2, "˚K", 0., nil},
 			[]driver.Value{3, "yoR", "interval", "˚KR", nil, 0.},
-			&types.Scale{3, "yoR", types.ScaleInterval, &types.Unit{"˚KR", types.JsonNullFloat64{0, false}, types.JsonNullFloat64{0, true}}, nil},
+			&types.Scale{3, "yoR", types.ScaleInterval, &types.UnitDesc{"˚KR", types.JsonNullFloat64{0, false}, types.JsonNullFloat64{0, true}}, nil},
 			cInterval,
 		},
 	}

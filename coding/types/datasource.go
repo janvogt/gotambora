@@ -7,7 +7,7 @@ import (
 
 type DataSource interface {
 	NodeController() ResourceController
-	// ScaleController() ResourceController
+	ScaleController() ResourceController
 	// MetricController() ResourceController
 	// EventController() ResourceController
 }

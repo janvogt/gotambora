@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"github.com/ant0ine/go-json-rest/rest"
 	"github.com/janvogt/gotambora/coding/types"
 	"net/http"
@@ -138,7 +139,7 @@ func handleError(err error, w rest.ResponseWriter) (occured bool) {
 		case types.HttpError:
 			rest.Error(w, err.Error(), err.Status())
 		default:
-			rest.Error(w, err.Error(), http.StatusInternalServerError)
+			rest.Error(w, err.Error()+fmt.Sprintf("%#v", err), http.StatusInternalServerError)
 		}
 		occured = true
 	}

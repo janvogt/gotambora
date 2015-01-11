@@ -11,7 +11,7 @@ func TestUnmarshalJSONScale(t *testing.T) {
 		j []byte
 		s Scale
 	}{
-		{[]byte(`{"id":12,"label":"scale","type":"interval","unit":"˚C","min":-273.15,"max":null}`), Scale{12, "scale", "interval", &Unit{"˚C", JsonNullFloat64{-273.15, true}, JsonNullFloat64{0, false}}, nil}},
+		{[]byte(`{"id":12,"label":"scale","type":"interval","unit":"˚C","min":-273.15,"max":null}`), Scale{12, "scale", "interval", &UnitDesc{"˚C", JsonNullFloat64{-273.15, true}, JsonNullFloat64{0, false}}, nil}},
 		{[]byte(`{"id":12,"label":"scale","type":"ordinal","values":[{"id":2,"label":"No1"},{"id":5,"label":"No2"},{"label":"New"}]}`), Scale{12, "scale", "ordinal", nil, Values{Value{2, "No1"}, Value{5, "No2"}, Value{Label: "New"}}}},
 	}
 	for i, test := range tests {
@@ -30,7 +30,7 @@ func TestMarshalJSONScale(t *testing.T) {
 		j []byte
 		s Scale
 	}{
-		{[]byte(`{"id":12,"label":"scale","type":"interval","unit":"˚C","min":-273.15,"max":null}`), Scale{12, "scale", "interval", &Unit{"˚C", JsonNullFloat64{-273.15, true}, JsonNullFloat64{0, false}}, nil}},
+		{[]byte(`{"id":12,"label":"scale","type":"interval","unit":"˚C","min":-273.15,"max":null,"values":null}`), Scale{12, "scale", "interval", &UnitDesc{"˚C", JsonNullFloat64{-273.15, true}, JsonNullFloat64{0, false}}, nil}},
 		{[]byte(`{"id":12,"label":"scale","type":"ordinal","values":[{"id":2,"label":"No1"},{"id":5,"label":"No2"},{"id":0,"label":"New"}]}`), Scale{12, "scale", "ordinal", nil, Values{Value{2, "No1"}, Value{5, "No2"}, Value{Label: "New"}}}},
 	}
 	for i, test := range tests {
