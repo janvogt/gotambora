@@ -1,36 +1,70 @@
 package types
 
 import (
-	"database/sql"
+	"database/sql/driver"
+	"encoding/json"
+	"fmt"
 )
 
-type ScaleType uint
+type ScaleType string
 
 const (
-	ScaleInterval ScaleType = iota
-	ScaleOrdinal  ScaleType = iota
-	ScaleNominal  ScaleType = iota
+	ScaleInterval ScaleType = "interval"
+	ScaleOrdinal  ScaleType = "ordinal"
+	ScaleNominal  ScaleType = "nominal"
 )
 
 type Scale struct {
-	Id    Id
-	Label Label
-	Type  ScaleType
+	Id    Id        `json:"id"`
+	Label Label     `json:"label"`
+	Type  ScaleType `json:"type"`
+	*Unit
+	Values Values `json:"values,omitempty"`
 }
 
-type Nominal struct {
-	Scale
-	Values map[Id]bool
+type Unit struct {
+	Unit Label           `json:"unit"`
+	Min  JsonNullFloat64 `json:"min"`
+	Max  JsonNullFloat64 `json:"max"`
 }
 
-type Ordinal struct {
-	Scale
-	Values []Id
+type Value struct {
+	Id    Id    `json:"id"`
+	Label Label `json:"label"`
 }
 
-type Interval struct {
-	Scale
-	Unit string
-	Min  sql.NullFloat64
-	Max  sql.NullFloat64
+type Values []Value
+
+// SetId implements the Document interface.
+func (s *Scale) SetId(id Id) {
+	s.Id = id
+}
+
+func (v *Values) Scan(src interface{}) error {
+	var j []byte
+	switch src := src.(type) {
+	case []byte:
+		j = src
+	case string:
+		j = []byte(src)
+	default:
+		return fmt.Errorf("Unsuported Typte %T for coding.ValueSlice", src)
+	}
+	return json.Unmarshal(j, v)
+}
+
+func (v *ScaleType) Scan(src interface{}) error {
+	switch src := src.(type) {
+	case []byte:
+		*v = ScaleType(src)
+	case string:
+		*v = ScaleType(src)
+	default:
+		return fmt.Errorf("Unsuported Typte %T for coding.ScaleType", src)
+	}
+	return nil
+}
+
+func (t ScaleType) Value() (driver.Value, error) {
+	return driver.Value(string(t)), nil
 }

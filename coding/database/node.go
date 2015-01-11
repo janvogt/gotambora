@@ -80,6 +80,7 @@ type NodeReader struct {
 	rows *sqlx.Rows
 }
 
+// Read implements the types.DocumentReader interface
 func (n *NodeReader) Read(r types.Resource) (ok bool, err error) {
 	if n.err != nil {
 		err = n.err
@@ -101,6 +102,7 @@ func (n *NodeReader) Read(r types.Resource) (ok bool, err error) {
 	return
 }
 
+// Close implements the types.DocumentReader interface
 func (n *NodeReader) Close() error {
 	return n.rows.Close()
 }
@@ -110,7 +112,7 @@ func assertNode(r types.Resource) (n *types.Node, err error) {
 	case *types.Node:
 		n = node
 	default:
-		err = errors.New("Unsuported Resource type, expected Node.")
+		err = errors.New("Unsuported Resource type, expected *Node.")
 	}
 	return
 }
