@@ -81,16 +81,8 @@ SELECT s.id, s.label, s.type, u.unit, u.min, u.max
 	if err != nil {
 		return
 	}
-	switch scale.Type {
-	case types.ScaleNominal, types.ScaleOrdinal:
-		scale.Unit = nil
-	case types.ScaleInterval:
-		scale.Values = nil
-	default:
-		err = fmt.Errorf("Invalid scale type for scale id %d", scale.Id)
-		return
-	}
-	return nil
+	err = cleanupScale(scale)
+	return
 }
 
 // Read satisfies the types.Controller interface
@@ -105,13 +97,8 @@ func (s *ScaleController) Read(id types.Id) (r types.Resource, err error) {
 	if err != nil {
 		return
 	}
-	switch scale.Type {
-	case types.ScaleNominal, types.ScaleOrdinal:
-		scale.Unit = nil
-	case types.ScaleInterval:
-		scale.Values = nil
-	default:
-		err = fmt.Errorf("Invalid scale type for scale id %d", id)
+	err = cleanupScale(scale)
+	if err != nil {
 		return
 	}
 	r = scale
@@ -120,7 +107,101 @@ func (s *ScaleController) Read(id types.Id) (r types.Resource, err error) {
 
 // Update satisfies the types.Controller interface
 func (s *ScaleController) Update(r types.Resource) (err error) {
-	return nil
+	scale, err := assertScale(r)
+	if err != nil {
+		return
+	}
+	qValue1 := `
+WITH updated_scale AS (
+  UPDATE %[1]s_scales SET label = $1 WHERE id = $2 RETURNING *
+),
+update_scale_values AS (
+  VALUES
+`
+	qValue2 := `
+),
+updated_values AS (
+  UPDATE %[1]s_values SET label = column2, "index" = column3 FROM update_scale_values WHERE id = column1 RETURNING %[1]s_values.*
+),
+new_scale_values AS (
+  VALUES
+`
+	qValue3 := `
+),
+new_values AS (
+  INSERT INTO %[1]s_values (label, scale, "index") SELECT v.column1, s.id, v.column2 FROM updated_scale s, new_scale_values v RETURNING *
+),
+changed_values AS (
+  SELECT * FROM new_values UNION SELECT * FROM updated_values
+),
+all_values AS (
+  SELECT * FROM changed_values UNION SELECT v.* FROM updated_scale s, %[1]s_values v WHERE s.id = v.scale AND v.id NOT IN ( SELECT id FROM changed_values )
+)
+SELECT s.id, s.label, s.type, json_agg((v.id, v.label)::%[1]s_scale_value ORDER BY v."index") AS values
+  FROM updated_scale s
+  LEFT JOIN all_values v ON s.id = v.scale
+GROUP BY s.id, s.label, s.type`
+	qUnit := `
+WITH updated_scale AS (
+  UPDATE %[1]s_scales SET label = :label WHERE id = :id RETURNING *
+),
+update_unit AS (
+  UPDATE %[1]s_units SET unit = :unit, min = :min, max = :max FROM updated_scale WHERE scale = id RETURNING %[1]s_units.*
+)
+SELECT s.id, s.label, s.type, u.unit, u.min, u.max
+  FROM updated_scale s
+  LEFT JOIN update_unit u ON s.id = u.scale`
+	var row *sqlx.Row
+	args := make([]interface{}, 2)
+	args[0], args[1] = scale.Label, scale.Id
+	switch scale.Type {
+	case types.ScaleNominal, types.ScaleOrdinal:
+		toUpdate := make([]interface{}, 0)
+		toCreate := make([]interface{}, 0)
+		for i, v := range scale.Values {
+			if v.Id == 0 {
+				toCreate = append(toCreate, v.Label, i)
+			} else {
+				toUpdate = append(toUpdate, v.Id, v.Label, i)
+			}
+		}
+		cA, cU, cC := len(args), len(toUpdate), len(toCreate)
+		newArgs := make([]interface{}, cA+cU+cC)
+		copy(newArgs[:cA], args)
+		copy(newArgs[cA:cA+cU], toUpdate)
+		copy(newArgs[cA+cU:cA+cU+cC], toCreate)
+		args = newArgs
+		var qU, qC string
+		for i := 0; i < cU/3; i++ {
+			qU += fmt.Sprintf(",($%d, $%d, $%d)", cA+i*3+1, cA+i*3+2, cA+i*3+3)
+		}
+		for i := 0; i < cC/2; i++ {
+			qC += fmt.Sprintf(",($%d, $%d)", cA+cU+i*2+1, cA+cU+i*2+2)
+		}
+		q := qValue1 + qU[1:] + qValue2 + qC[1:] + qValue3
+		var stmt *sqlx.Stmt
+		stmt, err = s.db.Preparex(fmt.Sprintf(q, s.db.prefix))
+		if err != nil {
+			return
+		}
+		row = stmt.QueryRowx(args...)
+	case types.ScaleInterval:
+		var stmt *sqlx.NamedStmt
+		stmt, err = s.db.PrepareNamed(fmt.Sprintf(qUnit, s.db.prefix))
+		if err != nil {
+			return
+		}
+		row = stmt.QueryRowx(scale)
+	default:
+		err = fmt.Errorf("Invalid scale type for new scale!")
+		return
+	}
+	err = row.StructScan(scale)
+	if err != nil {
+		return
+	}
+	err = cleanupScale(scale)
+	return
 }
 
 // Delete satisfies the types.Controller interface
@@ -151,4 +232,17 @@ func assertScale(r types.Resource) (s *types.Scale, err error) {
 		err = fmt.Errorf("Unsuported Resource type, expected *Scale.")
 	}
 	return
+}
+
+// cleanupScale nils out the unnecessary part of Scale according to it's type
+func cleanupScale(s *types.Scale) error {
+	switch s.Type {
+	case types.ScaleNominal, types.ScaleOrdinal:
+		s.Unit = nil
+	case types.ScaleInterval:
+		s.Values = nil
+	default:
+		return fmt.Errorf("Invalid scale type for scale id %d", s.Id)
+	}
+	return nil
 }

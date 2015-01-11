@@ -161,7 +161,7 @@ CREATE TABLE %[1]s_values (
 	scale   ` + idFieldType + ` NOT NULL REFERENCES %[1]s_scales(id) ON DELETE CASCADE,
 	"index" int NOT NULL,
 	label   ` + labelFieldType + `,
-  UNIQUE (scale, "index")
+  UNIQUE (scale, "index") DEFERRABLE
   PRIMARY KEY (id, scale)
 );
 ALTER SEQUENCE %[1]s_values_id_seq OWNED BY %[1]s_values.id;
@@ -211,9 +211,7 @@ ALTER SEQUENCE %[1]s_events_id_seq OWNED BY %[1]s_events.id;
 CREATE TABLE %[1]s_event_ratings (
   event   ` + idFieldType + ` NOT NULL REFERENCES %[1]s_events(id) ON DELETE CASCADE,
   metric ` + idFieldType + ` NOT NULL REFERENCES %[1]s_metrics(id) ON DELETE RESTRICT,
-  scale   ` + idFieldType + ` NOT NULL,
-  value   ` + idFieldType + ` NOT NULL,
-  FOREIGN KEY (value, scale) REFERENCES %[1]s_values(id, scale) ON UPDATE CASCADE ON DELETE RESTRICT
+  value   ` + idFieldType + ` REFERENCES %[1]s_values(id) ON UPDATE CASCADE ON DELETE RESTRICT
 );
 
 CREATE TABLE %[1]s_event_values (
