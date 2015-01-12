@@ -11,17 +11,16 @@ func TestMarshalJSON(t *testing.T) {
 		r Relation
 		j []byte
 	}{
-		{Relation{ToOne: ptrId(Id(3))}, []byte("3")},
-		{Relation{ToOne: ptrId(Id(0))}, []byte("0")},
+		{Relation{kind: toOne, ToOne: Id(3)}, []byte("3")},
+		{Relation{kind: toOne, ToOne: Id(0)}, []byte("0")},
 		{Relation{}, []byte("null")},
-		{Relation{ToMany: []Id{}}, []byte("[]")},
-		{Relation{ToMany: []Id{Id(0)}}, []byte("[0]")},
-		{Relation{ToMany: []Id{Id(5)}}, []byte("[5]")},
-		{Relation{ToMany: []Id{Id(5), Id(0), Id(2)}}, []byte("[5,0,2]")},
+		{Relation{kind: toMany, ToMany: []Id{}}, []byte("[]")},
+		{Relation{kind: toMany, ToMany: []Id{Id(0)}}, []byte("[0]")},
+		{Relation{kind: toMany, ToMany: []Id{Id(5)}}, []byte("[5]")},
+		{Relation{kind: toMany, ToMany: []Id{Id(5), Id(0), Id(2)}}, []byte("[5,0,2]")},
 	}
-	p, q := json.Marshal(Relation{ToOne: ptrId(Id(3))})
-	t.Logf("%s, %s\n", p, q)
 	for i, test := range tests {
+		t.Log(test.r)
 		j, e := json.Marshal(test.r)
 		if e != nil {
 			t.Errorf("Testcase %d: Got unexpected Error: %s\n", i, e)
@@ -42,13 +41,13 @@ func TestUnmarshalJSON(t *testing.T) {
 		r Relation
 		j []byte
 	}{
-		{Relation{ToOne: ptrId(Id(3))}, []byte("3")},
-		{Relation{ToOne: ptrId(Id(0))}, []byte("0")},
+		{Relation{kind: toOne, ToOne: Id(3)}, []byte("3")},
+		{Relation{kind: toOne, ToOne: Id(0)}, []byte("0")},
 		{Relation{}, []byte("null")},
-		{Relation{ToMany: []Id{}}, []byte("[]")},
-		{Relation{ToMany: []Id{Id(0)}}, []byte("[0]")},
-		{Relation{ToMany: []Id{Id(5)}}, []byte("[5]")},
-		{Relation{ToMany: []Id{Id(5), Id(0), Id(2)}}, []byte("[5,0,2]")},
+		{Relation{kind: toMany, ToMany: []Id{}}, []byte("[]")},
+		{Relation{kind: toMany, ToMany: []Id{Id(0)}}, []byte("[0]")},
+		{Relation{kind: toMany, ToMany: []Id{Id(5)}}, []byte("[5]")},
+		{Relation{kind: toMany, ToMany: []Id{Id(5), Id(0), Id(2)}}, []byte("[5,0,2]")},
 	}
 	for i, test := range tests {
 		var r Relation
