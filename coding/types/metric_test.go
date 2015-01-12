@@ -31,6 +31,7 @@ func TestMetricUnmarshalJSON(t *testing.T) {
 	}{
 		{&Metric{4, "metric", RelationToMany{Id(1), Id(4), Id(5)}}, `{"id":4,"label":"metric","links":{"scales":[1,4,5]}}`},
 		{&Metric{4, "metric", RelationToMany{}}, `{"id":4,"label":"metric","links":{"scales":[]}}`},
+		{&Metric{0, "", RelationToMany{}}, `{}`},
 	}
 	for i, test := range tests {
 		m := new(Metric)

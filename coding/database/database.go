@@ -142,7 +142,7 @@ const linksTable = `
 CREATE TABLE %[1]s_links (
   "from" ` + idFieldType + ` NOT NULL REFERENCES %[1]s_nodes(id) ON DELETE CASCADE,
   "to"   ` + idFieldType + ` NOT NULL REFERENCES %[1]s_nodes(id) ON DELETE CASCADE,
-	PRIMARY KEY ("from", "to")
+	PRIMARY KEY ("from", "to") DEFERRABLE
 );
 `
 
@@ -189,13 +189,13 @@ ALTER SEQUENCE %[1]s_metrics_id_seq OWNED BY %[1]s_metrics.id;
 CREATE TABLE %[1]s_metric_scale (
   metric ` + idFieldType + ` NOT NULL REFERENCES %[1]s_metrics(id) ON DELETE CASCADE,
   scale   ` + idFieldType + ` NOT NULL REFERENCES %[1]s_scales(id) ON DELETE CASCADE,
-  PRIMARY KEY (metric, scale)
+  PRIMARY KEY (metric, scale) DEFERRABLE
 );
 
 CREATE TABLE %[1]s_node_metric (
   node    ` + idFieldType + ` NOT NULL REFERENCES %[1]s_nodes(id) ON DELETE CASCADE,
   metric ` + idFieldType + ` NOT NULL REFERENCES %[1]s_metrics(id) ON DELETE RESTRICT,
-  PRIMARY KEY (node, metric)
+  PRIMARY KEY (node, metric) DEFERRABLE
 );
 `
 

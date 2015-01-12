@@ -41,7 +41,7 @@ func (a *Api) AddRoute(r *rest.Route) {
 func query(ctrl types.ResourceController) rest.HandlerFunc {
 	return func(w rest.ResponseWriter, r *rest.Request) {
 		reader := ctrl.Query(r.URL.Query())
-		var result []types.Resource
+		result := make([]types.Resource, 0)
 		var err error
 		var ok bool
 		for {

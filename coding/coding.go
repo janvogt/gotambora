@@ -13,6 +13,7 @@ func NewHandler(ds types.DataSource) (handler http.Handler, e error) {
 	a := &api.Api{}
 	a.AddResource("nodes", ds.NodeController())
 	a.AddResource("scales", ds.ScaleController())
+	a.AddResource("metrics", ds.MetricController())
 	a.AddRoute(&rest.Route{"GET", "/nodes/import", makeHandler(ds, ImportNodesHandler)})
 	return a.Handler()
 }

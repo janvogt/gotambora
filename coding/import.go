@@ -22,6 +22,7 @@ type Value struct {
 }
 
 func ImportNodes(db *database.DB) error {
+	nc := db.NodeController()
 	pars := make([]Parameter, 0, 100)
 	err := db.Select(&pars, "SELECT id, name_en FROM parameter;")
 	if err != nil {
@@ -32,7 +33,7 @@ func ImportNodes(db *database.DB) error {
 		p := &types.Node{}
 		p.Label = par.Label
 		fmt.Printf("Creating node %v for Par %d\n", p, par.Id)
-		err = db.CreateNode(p)
+		err = nc.Create(p)
 		if err != nil {
 			return err
 		}
@@ -44,9 +45,9 @@ func ImportNodes(db *database.DB) error {
 			vals := make([]Value, 0, 100)
 			a := &types.Node{}
 			a.Label = attr.Label
-			a.Parent = p.Id
+			a.Parent = types.OptionalId{Id: p.Id}
 			fmt.Printf("Creating node %v for tuple %d %d\n", a, par.Id, attr.Id)
-			err = db.CreateNode(a)
+			err = nc.Create(a)
 			if err != nil {
 				return err
 			}
@@ -57,9 +58,9 @@ func ImportNodes(db *database.DB) error {
 			for _, val := range vals {
 				v := &types.Node{}
 				v.Label = val.Label
-				v.Parent = a.Id
+				v.Parent = types.OptionalId{Id: a.Id}
 				fmt.Printf("Creating node %v for tripel %d %d %d\n", v, par.Id, attr.Id, val.Id)
-				err = db.CreateNode(v)
+				err = nc.Create(v)
 				if err != nil {
 					return err
 				}

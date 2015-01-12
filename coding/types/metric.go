@@ -28,15 +28,15 @@ type metricMessage struct {
 
 func (m Metric) MarshalJSON() (j []byte, err error) {
 	mes := &metricMessage{Id: &m.Id, Label: &m.Label}
-	mes.Links.AddToMany(metricScaleLink, []Id(m.Scales)...)
+	mes.Links.AddToMany(metricScaleLink, []Id(m.Scales))
 	return json.Marshal(mes)
 }
 
 func (m *Metric) UnmarshalJSON(j []byte) (err error) {
-	mes := new(metricMessage)
+	mes := &metricMessage{&m.Id, &m.Label, Links{}}
 	err = json.Unmarshal(j, mes)
 	if err == nil {
-		m.Id, m.Label, m.Scales = *mes.Id, *mes.Label, mes.Links.GetToMany(metricScaleLink)
+		m.Scales = mes.Links.GetToMany(metricScaleLink)
 	}
 	return
 }

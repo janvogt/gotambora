@@ -3,9 +3,15 @@ package database
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"github.com/janvogt/gotambora/coding/types"
 	"github.com/jmoiron/sqlx"
+	"net/http"
 )
+
+func (db *DB) NodeController() types.ResourceController {
+	return &NodeController{db}
+}
 
 type NodeController struct {
 	db *DB
@@ -17,61 +23,161 @@ func (n *NodeController) New() (r types.Resource) {
 }
 
 // Query satisfies the types.Controller interface
-func (n *NodeController) Query(q map[string][]string) types.ResourceReader {
-	par := make(map[string]interface{})
-	sqlStr := "SELECT nodes.id, nodes.label, nodes.parent, json_agg(children.id) AS children FROM " + n.db.table("nodes") + " nodes LEFT JOIN " + n.db.table("nodes") + " children ON nodes.id = children.parent WHERE nodes.id != 0 AND "
+func (nc *NodeController) Query(q map[string][]string) types.ResourceReader {
+	args := make(map[string]interface{})
+	where := "WHERE "
 	if len(q["label"]) != 0 {
-		sqlStr += "nodes.label IN " + inParameter("label", q["label"], par)
+		where += "n.label IN " + inParameter("label", q["label"], args)
 		if len(q["parent"]) != 0 {
-			sqlStr += "AND "
+			where += "AND "
 		}
 	}
 	if len(q["parent"]) != 0 {
-		sqlStr += "nodes.parent IN " + inParameter("parent", q["parent"], par)
+		where += "n.parent IN " + inParameter("parent", q["parent"], args)
 	} else if len(q["label"]) == 0 {
-		sqlStr += "nodes.parent = 0 "
+		where += "n.parent is NULL "
 	}
-	sqlStr += "GROUP BY nodes.id"
+	qSql := selectNode(nc.db.table("nodes"), nc.db.table("nodes"), nc.db.table("links"), nc.db.table("node_metric"), where)
 	res := new(NodeReader)
 	var stmt *sqlx.NamedStmt
-	stmt, res.err = n.db.PrepareNamed(sqlStr)
+	stmt, res.err = nc.db.PrepareNamed(qSql)
 	if res.err != nil {
 		return res
 	}
-	defer stmt.Close()
-	res.rows, res.err = stmt.Queryx(par)
+	res.rows, res.err = stmt.Queryx(args)
 	return res
 }
 
 // Create satisfies the types.Controller interface
-func (n *NodeController) Create(r types.Resource) (err error) {
-	node, err := assertNode(r)
+func (nc *NodeController) Create(r types.Resource) (err error) {
+	n, err := assertNode(r)
 	if err != nil {
 		return
 	}
-	err = n.db.CreateNode(node)
+	args := make(map[string]interface{})
+	q := "WITH " + nc.newNode(n, args) + "," + nc.newLinks(n, args) + "," + nc.newNodeMetric(n, args) + " " + selectNode("new_node", nc.db.table("nodes"), "new_links", "new_node_metric", "")
+	stmt, err := nc.db.PrepareNamed(q)
+	if err != nil {
+		return
+	}
+	err = stmt.Get(n, args)
 	return
 }
 
+func (nc *NodeController) newNode(n *types.Node, args map[string]interface{}) string {
+	args["newNodeLabel"], args["newNodeParent"] = n.Label, n.Parent
+	return ` new_node AS ( INSERT INTO ` + nc.db.table("nodes") + ` ( label, parent ) VALUES ( :newNodeLabel, :newNodeParent ) RETURNING * )`
+}
+
+func (nc *NodeController) newLinks(n *types.Node, args map[string]interface{}) string {
+	if n.References == nil || len(n.References) == 0 {
+		return ` new_links AS ( SELECT * FROM ` + nc.db.table("links") + ` WHERE FALSE )`
+	}
+	v := ""
+	for i, id := range n.References {
+		to := fmt.Sprintf("newLinksId%d", i)
+		args[to] = id
+		v += fmt.Sprintf(",(:%s)", to)
+	}
+	return ` new_links AS ( INSERT INTO ` + nc.db.table("links") + ` ("from", "to") SELECT n.id, t.id::::bigint FROM new_node n, ( VALUES ` + v[1:] + ` ) AS t ( id ) RETURNING * )`
+}
+
+func (nc *NodeController) newNodeMetric(n *types.Node, args map[string]interface{}) string {
+	if n.Metrics == nil || len(n.Metrics) == 0 {
+		return ` new_node_metric AS ( SELECT * FROM ` + nc.db.table("node_metric") + ` WHERE FALSE )`
+	}
+	v := ""
+	for i, id := range n.Metrics {
+		met := fmt.Sprintf("newNodeMetric%d", i)
+		args[met] = id
+		v += fmt.Sprintf(",(:%s)", met)
+	}
+	return ` new_node_metric AS ( INSERT INTO ` + nc.db.table("node_metric") + ` (node, metric) SELECT n.id, m.id::::bigint FROM new_node n, ( VALUES ` + v[1:] + ` ) AS m ( id ) RETURNING * )`
+}
+
 // Read satisfies the types.Controller interface
-func (n *NodeController) Read(id types.Id) (r types.Resource, err error) {
-	r, err = n.db.ReadNode(id)
+func (nc *NodeController) Read(id types.Id) (r types.Resource, err error) {
+	stmt, err := nc.db.Preparex(selectNode(nc.db.table("nodes"), nc.db.table("nodes"), nc.db.table("links"), nc.db.table("node_metric"), "WHERE n.id = $1"))
+	if err != nil {
+		return
+	}
+	n := new(types.Node)
+	err = stmt.Get(n, id)
+	if err == nil {
+		r = n
+	} else if err == sql.ErrNoRows {
+		err = types.NewHttpError(http.StatusNotFound, fmt.Errorf("No node with id %d", id))
+	}
 	return
 }
 
 // Update satisfies the types.Controller interface
-func (n *NodeController) Update(r types.Resource) (err error) {
-	node, err := assertNode(r)
+func (nc *NodeController) Update(r types.Resource) (err error) {
+	n, err := assertNode(r)
 	if err != nil {
 		return
 	}
-	err = n.db.UpdateNode(node)
+	args := make(map[string]interface{})
+	q := "WITH" + nc.updatedNode(n, args) + "," + nc.updatedLinks(n, args) + "," + nc.updatedNodeMetric(n, args) + " " + selectNode("updated_node", nc.db.table("nodes"), "updated_links", "updated_node_metric", "")
+	stmt, err := nc.db.PrepareNamed(q)
+	if err != nil {
+		return
+	}
+	err = stmt.Get(n, args)
+	return
+}
+
+func (nc *NodeController) updatedNode(n *types.Node, args map[string]interface{}) string {
+	args["updatedNodeId"], args["updatedNodeLabel"], args["updatedNodeParent"] = n.Id, n.Label, n.Parent
+	return ` updated_node AS ( UPDATE ` + nc.db.table("nodes") + ` SET label = :updatedNodeLabel, parent = :updatedNodeParent WHERE id = :updatedNodeId RETURNING * )`
+}
+
+func (nc *NodeController) updatedLinks(n *types.Node, args map[string]interface{}) (q string) {
+	q = ` deleted_links AS ( DELETE FROM ` + nc.db.table("links") + ` WHERE "from" = :updatedNodeId )`
+	if n.References == nil || len(n.References) == 0 {
+		q += `, updated_links AS ( SELECT * FROM ` + nc.db.table("links") + ` WHERE FALSE )`
+		return
+	}
+	v := ""
+	for i, id := range n.References {
+		to := fmt.Sprintf("updatedLinksId%d", i)
+		args[to] = id
+		v += fmt.Sprintf(",(:%s)", to)
+	}
+	q += `, updated_links AS ( INSERT INTO ` + nc.db.table("links") + ` ("from", "to") SELECT n.id, t.id::::bigint FROM updated_node n, ( VALUES ` + v[1:] + ` ) AS t ( id ) RETURNING * )`
+	return
+}
+
+func (nc *NodeController) updatedNodeMetric(n *types.Node, args map[string]interface{}) (q string) {
+	q = ` deleted_node_metric AS ( DELETE FROM ` + nc.db.table("node_metric") + ` WHERE node = :updatedNodeId )`
+	if n.Metrics == nil || len(n.Metrics) == 0 {
+		q += `, updated_node_metric AS ( SELECT * FROM ` + nc.db.table("node_metric") + ` WHERE FALSE )`
+		return
+	}
+	v := ""
+	for i, id := range n.Metrics {
+		met := fmt.Sprintf("updatedNodeMetric%d", i)
+		args[met] = id
+		v += fmt.Sprintf(",(:%s)", met)
+	}
+	q += `, updated_node_metric AS ( INSERT INTO ` + nc.db.table("node_metric") + ` (node, metric) SELECT n.id, m.id::::bigint FROM updated_node n, ( VALUES ` + v[1:] + ` ) AS m ( id ) RETURNING * )`
 	return
 }
 
 // Delete satisfies the types.Controller interface
-func (n *NodeController) Delete(id types.Id) (err error) {
-	err = n.db.DeleteNode(id)
+func (nc *NodeController) Delete(id types.Id) (err error) {
+	stmt, err := nc.db.Preparex("DELETE FROM " + nc.db.table("nodes") + " WHERE id = $1")
+	if err != nil {
+		return
+	}
+	res, err := stmt.Exec(id)
+	if err != nil {
+		return
+	}
+	rows, err := res.RowsAffected()
+	if err == nil && rows == 0 {
+		err = types.NewHttpError(http.StatusNotFound, fmt.Errorf("No node with id %d found!", id))
+	}
 	return
 }
 
@@ -96,8 +202,7 @@ func (n *NodeReader) Read(r types.Resource) (ok bool, err error) {
 		n.rows.Close()
 	}
 	if err != nil {
-		n.err = err
-		ok = false
+		ok, n.err = false, err
 	}
 	return
 }
@@ -117,132 +222,6 @@ func assertNode(r types.Resource) (n *types.Node, err error) {
 	return
 }
 
-func (db *DB) NodeController() types.ResourceController {
-	return &NodeController{db}
-}
-
-// QueryNodes implements NodeDatasource interface.
-func (db *DB) QueryNodes(q *types.NodeQuery, res chan<- *types.Node, abort <-chan chan<- error) {
-	defer close(res)
-	par := make(map[string]interface{})
-	sqlStr := "SELECT nodes.id, nodes.label, nodes.parent, json_agg(children.id) AS children FROM " + db.table("nodes") + " nodes LEFT JOIN " + db.table("nodes") + " children ON nodes.id = children.parent WHERE nodes.id != 0 AND "
-	if len(q.Labels) != 0 {
-		sqlStr += "nodes.label IN " + inParameter("label", q.Labels, par)
-		if len(q.Parents) != 0 {
-			sqlStr += "AND "
-		}
-	}
-	if len(q.Parents) != 0 {
-		sqlStr += "nodes.parent IN " + inParameter("parent", q.Parents, par)
-	} else if len(q.Labels) == 0 {
-		sqlStr += "nodes.parent = 0 "
-	}
-	sqlStr += "GROUP BY nodes.id"
-	var stmt *sqlx.NamedStmt
-	ok := exponentialRetry(abort, func() error {
-		var err error
-		stmt, err = db.PrepareNamed(sqlStr)
-		return err
-	})
-	if !ok {
-		return
-	}
-	var rows *sqlx.Rows
-	ok = exponentialRetry(abort, func() error {
-		var err error
-		rows, err = stmt.Queryx(par)
-		return err
-	})
-	if !ok {
-		return
-	}
-	for rows.Next() {
-		n := &types.Node{}
-		ok := exponentialRetry(abort, func() error {
-			err := rows.StructScan(n)
-			return err
-		})
-		if !ok {
-			return
-		}
-		select {
-		case res <- n:
-		case errChan := <-abort:
-			errChan <- nil
-			return
-		}
-	}
-	return
-}
-
-// CreateNode implements NodeDatasource interface.
-func (db *DB) CreateNode(n *types.Node) (err error) {
-	stmt, err := db.PrepareNamed("WITH ins AS (INSERT INTO " + db.table("nodes") + " (label, parent) VALUES (:label, :parent) RETURNING *) SELECT node.id, node.label, node.parent, json_agg(children.id) AS children FROM ins node LEFT JOIN " + db.table("nodes") + " children ON node.id = children.parent GROUP BY node.id, node.label, node.parent")
-	if err != nil {
-		return
-	}
-	err = stmt.Get(n, &n)
-	return
-}
-
-var (
-	ErrUnknownId = errors.New("Unknown Id")
-)
-
-// ReadNode implements NodeDatasource interface.
-func (db *DB) ReadNode(id types.Id) (n *types.Node, err error) {
-	if id == 0 {
-		err = ErrUnknownId
-		return
-	}
-	stmt, err := db.Preparex("SELECT node.id, node.label, node.parent, json_agg(children.id) AS children FROM " + db.table("nodes") + " node LEFT JOIN " + db.table("nodes") + " children ON node.id = children.parent WHERE node.id = $1 GROUP BY node.id")
-	if err != nil {
-		return
-	}
-	n = &types.Node{}
-	err = stmt.Get(n, id)
-	if err == sql.ErrNoRows {
-		err = ErrUnknownId
-	}
-	if err != nil {
-		n = nil
-	}
-	return
-}
-
-// UpdateNode implements NodeDatasource interface.
-func (db *DB) UpdateNode(n *types.Node) (err error) {
-	if n.Id == 0 {
-		err = ErrUnknownId
-		return
-	}
-	stmt, err := db.PrepareNamed("WITH upd AS (UPDATE " + db.table("nodes") + " SET (label, parent) = (:label, :parent) WHERE id = :id RETURNING *) SELECT node.id, node.label, node.parent, json_agg(children.id) AS children FROM upd node LEFT JOIN " + db.table("nodes") + " children ON node.id = children.parent GROUP BY node.id, node.label, node.parent")
-	if err != nil {
-		return
-	}
-	err = stmt.Get(n, &n)
-	if err == sql.ErrNoRows {
-		err = ErrUnknownId
-	}
-	return
-}
-
-// DeleteNode implements NodeDatasource interface.
-func (db *DB) DeleteNode(id types.Id) (err error) {
-	if id == 0 {
-		return ErrUnknownId
-	}
-	stmt, err := db.Preparex("DELETE FROM " + db.table("nodes") + " WHERE id = $1")
-	if err != nil {
-		return
-	}
-	res, err := stmt.Exec(id)
-	if err != nil {
-		return
-	}
-	rows, err := res.RowsAffected()
-	if err == nil && rows == 0 {
-		err = ErrUnknownId
-	}
-	return
+func selectNode(nodesTable, childrenTable, linksTable, metricsTable, where string) string {
+	return `SELECT n.id, n.label, n.parent, json_agg(DISTINCT c.id) AS children, json_agg(DISTINCT l.to) AS references, json_agg(DISTINCT m.metric) AS metrics FROM ` + nodesTable + ` n LEFT JOIN ` + childrenTable + ` c ON n.id = c.parent LEFT JOIN ` + linksTable + ` l ON n.id = l.from LEFT JOIN ` + metricsTable + ` m ON n.id = m.node ` + where + ` GROUP BY n.id, n.label, n.parent`
 }

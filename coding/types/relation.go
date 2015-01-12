@@ -7,9 +7,9 @@ import (
 type relationType int
 
 const (
-	invalidRelation relationType = iota
-	toOne           relationType = iota
-	toMany          relationType = iota
+	noRelation relationType = iota
+	toOne      relationType = iota
+	toMany     relationType = iota
 )
 
 type Links struct {
@@ -23,19 +23,31 @@ type Relation struct {
 }
 
 // AddToMany adds new links to the given ids under name
-func (l *Links) AddToMany(name string, ids ...Id) {
-	if l.Links == nil {
-		l.Links = make(map[string]Relation)
-	}
+func (l *Links) AddToMany(name string, ids []Id) {
+	l.ensureLinks()
 	l.Links[name] = Relation{ToMany: ids, kind: toMany}
 }
 
 // AddToOne adds a new link to the given id under name
 func (l *Links) AddToOne(name string, id Id) {
+	l.ensureLinks()
+	l.Links[name] = Relation{ToOne: id, kind: toOne}
+}
+
+// AddToOne adds a new link to the optional id under name
+func (l *Links) AddOptional(name string, oid OptionalId) {
+	l.ensureLinks()
+	if oid.Valid {
+		l.Links[name] = Relation{ToOne: oid.Id, kind: toOne}
+	} else {
+		l.Links[name] = Relation{ToOne: oid.Id, kind: noRelation}
+	}
+}
+
+func (l *Links) ensureLinks() {
 	if l.Links == nil {
 		l.Links = make(map[string]Relation)
 	}
-	l.Links[name] = Relation{ToOne: id, kind: toOne}
 }
 
 // GetToMany retrieves the linked ids with the given name
@@ -52,6 +64,14 @@ func (l *Links) GetToOne(name string) (id Id) {
 		return r.ToOne
 	}
 	return
+}
+
+// GetToOne retrieves the linked id with the given name
+func (l *Links) GetToOneOptional(name string) (id OptionalId) {
+	if r, ok := l.Links[name]; ok {
+		return OptionalId{r.ToOne, r.kind == toOne}
+	}
+	return OptionalId{Id(0), false}
 }
 
 // Clear clears all links.
@@ -71,8 +91,7 @@ func (r Relation) MarshalJSON() ([]byte, error) {
 
 func (r *Relation) UnmarshalJSON(data []byte) (err error) {
 	if string(data) == "null" {
-
-		r.kind = invalidRelation
+		r.kind = noRelation
 		return
 	}
 	if data[0] != '[' {
