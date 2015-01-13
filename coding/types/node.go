@@ -51,18 +51,3 @@ func (n *Node) UnmarshalJSON(data []byte) (err error) {
 func (n *Node) SetId(id Id) {
 	n.Id = id
 }
-
-// DEPRECATED
-type NodeDataSource interface {
-	QueryNodes(q *NodeQuery, res chan<- *Node, abort <-chan chan<- error)
-	CreateNode(n *Node) (err error)
-	ReadNode(id Id) (n *Node, err error)
-	UpdateNode(n *Node) (err error)
-	DeleteNode(id Id) (err error)
-}
-
-// DEPRECATED
-type NodeQuery struct {
-	Parents []Id
-	Labels  []Label
-}
