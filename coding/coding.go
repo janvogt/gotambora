@@ -11,10 +11,10 @@ import (
 // NewHandler creates a new ressource handler for the ressources of the coding subsystem.
 func NewHandler(ds types.DataSource) (handler http.Handler, e error) {
 	a := &api.Api{}
+	a.AddRoute(&rest.Route{"GET", "/import", makeHandler(ds, ImportNodesHandler)})
 	a.AddResource("nodes", ds.NodeController())
 	a.AddResource("scales", ds.ScaleController())
 	a.AddResource("metrics", ds.MetricController())
-	a.AddRoute(&rest.Route{"GET", "/nodes/import", makeHandler(ds, ImportNodesHandler)})
 	return a.Handler()
 }
 
