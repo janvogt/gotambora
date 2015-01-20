@@ -86,6 +86,9 @@ func newValues(s *types.Scale, args map[string]interface{}) (q string) {
 }
 
 func newUnit(s *types.Scale, args map[string]interface{}) (q string) {
+	if s.UnitDesc == nil {
+		s.UnitDesc = new(types.UnitDesc)
+	}
 	q = newScale(s, args) + ","
 	args["newUnitUnit"], args["newUnitMin"], args["newUnitMax"] = s.Unit, s.Min, s.Max
 	q += ` new_units AS ( INSERT INTO %[1]s_units (scale, unit, "min", "max") SELECT s.id, v.unit, v.min::::double precision, v.max::::double precision FROM new_scale s, (VALUES (:newUnitUnit, :newUnitMin, :newUnitMax)) AS v (unit, "min", "max") RETURNING * )`
@@ -188,6 +191,9 @@ func changedValues(s *types.Scale, args map[string]interface{}) (q string) {
 }
 
 func updatedUnit(s *types.Scale, args map[string]interface{}) (q string) {
+	if s.UnitDesc == nil {
+		s.UnitDesc = new(types.UnitDesc)
+	}
 	q = updatedScale(s, args)
 	args["updatedUnitUnit"], args["updatedUnitMin"], args["updatedUnitMax"] = s.Unit, s.Min, s.Max
 	q += `, updated_unit AS ( UPDATE %[1]s_units SET unit = :updatedUnitUnit, min = :updatedUnitMin, max = :updatedUnitMax FROM updated_scale s WHERE scale = s.id RETURNING %[1]s_units.* )`

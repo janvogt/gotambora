@@ -42,7 +42,7 @@ func (oid *OptionalId) Scan(src interface{}) error {
 
 func (oid OptionalId) Value() (driver.Value, error) {
 	if oid.Valid {
-		return driver.Value(oid.Id), nil
+		return driver.Value(int64(oid.Id)), nil
 	}
 	return nil, nil
 }
